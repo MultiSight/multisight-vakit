@@ -2,12 +2,16 @@
 #ifndef __VAKit_VAH264Encoder_h
 #define __VAKit_VAH264Encoder_h
 
+#ifndef WIN32
 extern "C"
 {
 #include <va/va.h>
 #include <va/va_enc_h264.h>
 #include <va/va_drm.h>
 }
+#include <unistd.h>
+#include <fcntl.h>
+#endif
 
 #include "XSDK/Types.h"
 #include "XSDK/XSocket.h"
@@ -15,39 +19,36 @@ extern "C"
 #include "XSDK/XString.h"
 #include "AVKit/Options.h"
 #include "AVKit/FrameTypes.h"
-
-#include <unistd.h>
-#include <fcntl.h>
+#include "AVKit/Encoder.h"
 
 namespace VAKit
 {
 
 const size_t NUM_REFERENCE_FRAMES = 16;
 
-class VAH264Encoder
+class VAH264Encoder : public AVKit::Encoder
 {
 public:
 
     X_API VAH264Encoder( const struct AVKit::CodecOptions& options,
-                         const XSDK::XString& devicePath,
                          bool annexB = true );
 
     X_API virtual ~VAH264Encoder() throw();
 
-    X_API size_t EncodeYUV420P( uint8_t* pic,
-                                uint8_t* output,
-                                size_t outputSize,
-                                AVKit::FrameType type = AVKit::FRAME_TYPE_AUTO_GOP );
+    X_API virtual size_t EncodeYUV420P( uint8_t* pic,
+                                        uint8_t* output,
+                                        size_t outputSize,
+                                        AVKit::FrameType type = AVKit::FRAME_TYPE_AUTO_GOP );
 
-    X_API XIRef<XSDK::XMemory> EncodeYUV420P( XIRef<XSDK::XMemory> input,
-                                              AVKit::FrameType type = AVKit::FRAME_TYPE_AUTO_GOP );
+    X_API virtual XIRef<XSDK::XMemory> EncodeYUV420P( XIRef<XSDK::XMemory> input,
+                                                      AVKit::FrameType type = AVKit::FRAME_TYPE_AUTO_GOP );
 
 
-    X_API bool LastWasKey() const;
+    X_API virtual bool LastWasKey() const;
 
-    X_API struct AVKit::CodecOptions GetOptions() const;
+    X_API virtual struct AVKit::CodecOptions GetOptions() const;
 
-    X_API XIRef<XSDK::XMemory> GetExtraData() const;
+    X_API virtual XIRef<XSDK::XMemory> GetExtraData() const;
 
 private:
 
@@ -61,6 +62,8 @@ private:
     int32_t _CalcPOC( int32_t picOrderCntLSB );
     void _RenderPicture( bool done );
     void _RenderSlice();
+
+#ifndef WIN32
     void _UploadImage( uint8_t* yv12, VAImage& image, uint16_t width, uint16_t height );
 
     XSDK::XString _devicePath;
@@ -96,6 +99,7 @@ private:
     XIRef<XSDK::XMemory> _extraData;
     XIRef<XSDK::XMemory> _pkt;
     struct AVKit::CodecOptions _options;
+#endif
 };
 
 }

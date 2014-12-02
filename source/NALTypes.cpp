@@ -5,6 +5,8 @@
 namespace VAKit
 {
 
+#ifndef WIN32
+
 static const int NAL_REF_IDC_NONE = 0;
 static const int NAL_REF_IDC_HIGH = 3;
 static const int NAL_SPS = 7;
@@ -213,5 +215,7 @@ int BuildPackedSeqBuffer( BitStream& bs,
 
     return bs.SizeInBits();
 }
+
+#endif
 
 }

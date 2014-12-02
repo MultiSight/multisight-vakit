@@ -5,6 +5,7 @@ set(SOURCES source/BitStream.cpp
             source/NALTypes.cpp
             source/VAH264Encoder.cpp)
 
+set(WINDOWS_LIBS XSDK AVKit)
 set(LINUX_LIBS XSDK AVKit va va-drm)
 
 include(common.cmake NO_POLICY_SCOPE)

@@ -223,8 +223,6 @@ VAH264Encoder::~VAH264Encoder() throw()
     vaTerminate( _display );
 
     close( _fd );
-#else
-    X_THROW(("Windows not supported."));
 #endif
 }
 

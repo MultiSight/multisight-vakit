@@ -28,8 +28,8 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
 #ifndef WIN32
   : _devicePath(),
     _annexB( annexB ),
-    _fd( open( _devicePath.c_str(), O_RDWR ) ),
-    _display( (VADisplay)vaGetDisplayDRM( _fd ) ),
+    _fd(-1),
+    _display(),
     _h264Profile( VAProfileH264High ),
     _configID( 0 ),
     _srcSurfaceID( 0 ),
@@ -69,6 +69,12 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
         X_THROW(("device_path needed for VAH264Encoder."));
 
     _devicePath = options.device_path.Value();
+
+    _fd = open( _devicePath.c_str(), O_RDWR );
+    if( _fd <= 0 )
+        X_THROW(("Unable to open %s",_devicePath.c_str()));
+
+    _display = (VADisplay)vaGetDisplayDRM( _fd );
 
     if( !options.width.IsNull() )
     {

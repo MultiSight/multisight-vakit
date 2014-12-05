@@ -91,7 +91,7 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     else X_THROW(( "Required option missing: height" ));
 
     if( !options.bit_rate.IsNull() )
-        _frameBitRate = options.bit_rate.Value() / 1000;
+        _frameBitRate = (options.bit_rate.Value() / 1000) / 8;
     else X_THROW(( "Required option missing: bit_rate" ));
 
     if( !options.gop_size.IsNull() )

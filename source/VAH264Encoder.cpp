@@ -306,7 +306,8 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
         X_THROW(( "Unable to vaMapBuffer (%s).", vaErrorStr(status) ));
 
     VACodedBufferSegment* current = bufList;
-    uint32_t accumSize = 0;
+    uint32_t accumSize = (_annexB) ? _extraData->GetDataSize() : 0;
+
     while( current != NULL )
     {
         accumSize += current->size;
@@ -317,6 +318,12 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
         X_THROW(("Not enough room in output buffer."));
 
     uint8_t* dst = output;
+
+    if( _annexB )
+    {
+        memcpy( dst, _extraData->Map(), _extraData->GetDataSize() );
+        dst += _extraData->GetDataSize();
+    }
 
     while( bufList != NULL )
     {
@@ -375,6 +382,9 @@ struct CodecOptions VAH264Encoder::GetOptions() const
 XIRef<XMemory> VAH264Encoder::GetExtraData() const
 {
 #ifndef WIN32
+    if( _extraData->GetDataSize() == 0 )
+        X_THROW(("Decode one frame before call to GetExtraData()."));
+
     return _extraData;
 #else
     X_THROW(("Windows not supported."));
@@ -717,8 +727,6 @@ void VAH264Encoder::_RenderSlice()
 void VAH264Encoder::_UploadImage( uint8_t* yv12, VAImage& image, uint16_t width, uint16_t height )
 {
     assert( image.num_planes == 2 );
-    assert( image.pitches[0] == width );
-    assert( image.pitches[1] == width );
 
     unsigned char* p = NULL;
     vaMapBuffer( _display, image.buf, (void **)&p );
@@ -732,17 +740,29 @@ void VAH264Encoder::_UploadImage( uint8_t* yv12, VAImage& image, uint16_t width,
     uint8_t* dy = p + image.offsets[0];
     uint8_t* duv = p + image.offsets[1];
 
-    memcpy( dy, sy, (width*height) );
-
-    for( size_t i = 0; i < ((width/2)*(height/2)); i++ )
+    for( size_t i = 0; i < height; i++ )
     {
-        *duv = *su;
-        duv++;
-        su++;
+        memcpy( dy, sy, width );
+        dy += image.pitches[0];
+        sy += width;
+    }
 
-        *duv = *sv;
-        duv++;
-        sv++;
+    for( size_t i = 0; i < (height/2); i++ )
+    {
+        uint8_t* dst = duv;
+
+        for( size_t ii = 0; ii < (width/2); ii++ )
+        {
+            *dst = *su;
+            dst++;
+            su++;
+
+            *dst = *sv;
+            dst++;
+            sv++;
+        }
+
+        duv += image.pitches[1];
     }
 
     vaUnmapBuffer( _display, image.buf );

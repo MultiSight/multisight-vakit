@@ -748,59 +748,6 @@ void VAH264Encoder::_RenderPackedSPS()
 #endif
 }
 
-void VAH264Encoder::_RenderPackedSlice()
-{
-#ifndef WIN32
-
-    BitStream sliceBS;
-    BuildPackedSliceBuffer( sliceBS, _picParam, _sliceParam, _seqParam, _annexB );
-
-    VAEncPackedHeaderParameterBuffer packedheader_param_buffer;
-    packedheader_param_buffer.type = VAEncPackedHeaderSlice;
-    packedheader_param_buffer.bit_length = sliceBS.SizeInBits();
-    packedheader_param_buffer.has_emulation_bytes = 0;
-
-    VABufferID packedslice_para_bufid;
-
-    VAStatus va_status = vaCreateBuffer( _display,
-                                         _contextID,
-                                         VAEncPackedHeaderParameterBufferType,
-                                         sizeof(packedheader_param_buffer),
-                                         1,
-                                         &packedheader_param_buffer,
-                                         &packedslice_para_bufid );
-
-    if( va_status != VA_STATUS_SUCCESS )
-        X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(va_status) ));
-
-    VABufferID packedslice_data_bufid;
-
-    va_status = vaCreateBuffer( _display,
-                                _contextID,
-                                VAEncPackedHeaderDataBufferType,
-                                (sliceBS.SizeInBits() + 7) / 8,
-                                1,
-                                sliceBS.Map(),
-                                &packedslice_data_bufid );
-
-    if( va_status != VA_STATUS_SUCCESS )
-        X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(va_status) ));
-
-    VABufferID render_id[2];
-
-    render_id[0] = packedslice_para_bufid;
-    render_id[1] = packedslice_data_bufid;
-
-    va_status = vaRenderPicture( _display, _contextID, render_id, 2 );
-
-    if( va_status != VA_STATUS_SUCCESS )
-        X_THROW(( "Unable to vaRenderPicture (%s).", vaErrorStr(va_status) ));
-
-#else
-    X_THROW(("Windows not supported."));
-#endif
-}
-
 void VAH264Encoder::_RenderSlice()
 {
 #ifndef WIN32
@@ -837,8 +784,6 @@ void VAH264Encoder::_RenderSlice()
     _sliceParam.slice_beta_offset_div2 = 0;
     _sliceParam.direct_spatial_mv_pred_flag = 1;
     _sliceParam.pic_order_cnt_lsb = (_currentFrameNum - _currentIDRDisplay) % MAX_PIC_ORDER_CNT_LSB;
-
-//    _RenderPackedSlice();
 
     VAStatus status = vaCreateBuffer( _display,
                                       _contextID,

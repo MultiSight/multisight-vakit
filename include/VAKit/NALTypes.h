@@ -30,13 +30,6 @@ int BuildPackedSeqBuffer( BitStream& bs,
                           uint32_t timeScale,
                           uint32_t frameBitrate,
                           bool annexB = true );
-
-int BuildPackedSliceBuffer( BitStream& bs,
-                            VAEncPictureParameterBufferH264& picParam,
-                            VAEncSliceParameterBufferH264& sliceParam,
-                            VAEncSequenceParameterBufferH264& seqParam,
-                            bool annexB = true );
-
 #endif
 }
 

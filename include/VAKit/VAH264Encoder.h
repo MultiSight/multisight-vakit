@@ -24,7 +24,8 @@ extern "C"
 namespace VAKit
 {
 
-const size_t NUM_REFERENCE_FRAMES = 16;
+const size_t NUM_REFERENCE_FRAMES = 2;
+const size_t SURFACE_NUM = 16;
 
 class VAH264Encoder : public AVKit::Encoder
 {
@@ -61,7 +62,10 @@ private:
     void _RenderSequence();
     int32_t _CalcPOC( int32_t picOrderCntLSB );
     void _RenderPicture( bool done );
+    void _RenderPackedPPS();
+    void _RenderPackedSPS();
     void _RenderSlice();
+    void _RenderPackedSlice();
 
 #ifndef WIN32
     void _UploadImage( uint8_t* yv12, VAImage& image, uint16_t width, uint16_t height );
@@ -74,13 +78,13 @@ private:
     VAConfigID _configID;
     VASurfaceID _srcSurfaceID;
     VABufferID _codedBufID;
-    VASurfaceID _refSurfaceIDs[NUM_REFERENCE_FRAMES];
+    VASurfaceID _refSurfaceIDs[SURFACE_NUM];
     VAContextID _contextID;
     VAEncSequenceParameterBufferH264 _seqParam;
     VAEncPictureParameterBufferH264 _picParam;
     VAEncSliceParameterBufferH264 _sliceParam;
     VAPictureH264 _currentCurrPic;
-    VAPictureH264 _referenceFrames[NUM_REFERENCE_FRAMES];
+    VAPictureH264 _referenceFrames[SURFACE_NUM];
     VAPictureH264 _refPicListP[32];
     uint32_t _numShortTerm;
     int32_t _constraintSetFlag;

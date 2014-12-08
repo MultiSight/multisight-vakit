@@ -1,6 +1,7 @@
 
 #include "VAKit/NALTypes.h"
 #include <assert.h>
+#include <stdio.h>
 
 namespace VAKit
 {
@@ -8,12 +9,20 @@ namespace VAKit
 #ifndef WIN32
 
 static const int NAL_REF_IDC_NONE = 0;
+static const int NAL_REF_IDC_LOW = 1;
+static const int NAL_REF_IDC_MEDIUM = 2;
 static const int NAL_REF_IDC_HIGH = 3;
+static const int NAL_NON_IDR = 1;
+static const int NAL_IDR = 5;
 static const int NAL_SPS = 7;
 static const int NAL_PPS = 8;
 static const int PROFILE_IDC_BASELINE = 66;
 static const int PROFILE_IDC_MAIN = 77;
 static const int PROFILE_IDC_HIGH = 100;
+static const int SLICE_TYPE_P = 0;
+static const int SLICE_TYPE_I = 0;
+#define IS_I_SLICE(type) (SLICE_TYPE_I == (type))
+#define IS_P_SLICE(type) (SLICE_TYPE_P == (type))
 
 void RBSPTrailingBits( BitStream& bs )
 {
@@ -116,8 +125,8 @@ void SPSRBSP( BitStream& bs,
         {
             // hrd_parameters
             bs.PutUE(0);    /* cpb_cnt_minus1 */
-            bs.PutUI(0, 4); /* bit_rate_scale */
-            bs.PutUI(0, 4); /* cpb_size_scale */
+            bs.PutUI(4, 4); /* bit_rate_scale */
+            bs.PutUI(6, 4); /* cpb_size_scale */
 
             bs.PutUE(frameBitrate - 1); /* bit_rate_value_minus1[0] */
             bs.PutUE(frameBitrate*8 - 1); /* cpb_size_value_minus1[0] */
@@ -210,6 +219,112 @@ int BuildPackedSeqBuffer( BitStream& bs,
              numUnitsInTick,
              timeScale,
              frameBitrate );
+
+    bs.End();
+
+    return bs.SizeInBits();
+}
+
+void _SliceHeader( BitStream& bs,
+                   VAEncPictureParameterBufferH264& picParam,
+                   VAEncSliceParameterBufferH264& sliceParam,
+                   VAEncSequenceParameterBufferH264& seqParam )
+{
+    int first_mb_in_slice = sliceParam.macroblock_address;
+
+    bs.PutUE(first_mb_in_slice);        /* first_mb_in_slice: 0 */
+    bs.PutUE(sliceParam.slice_type);   /* slice_type */
+    bs.PutUE(sliceParam.pic_parameter_set_id);        /* pic_parameter_set_id: 0 */
+    bs.PutUI(picParam.frame_num, seqParam.seq_fields.bits.log2_max_frame_num_minus4 + 4); /* frame_num */
+
+    /* frame_mbs_only_flag == 1 */
+    if (!seqParam.seq_fields.bits.frame_mbs_only_flag) {
+        /* FIXME: */
+        assert(0);
+    }
+
+    if (picParam.pic_fields.bits.idr_pic_flag)
+        bs.PutUE(sliceParam.idr_pic_id);		/* idr_pic_id: 0 */
+
+    if (seqParam.seq_fields.bits.pic_order_cnt_type == 0) {
+        bs.PutUI(picParam.CurrPic.TopFieldOrderCnt, seqParam.seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 + 4);
+        /* pic_order_present_flag == 0 */
+    } else {
+        /* FIXME: */
+        assert(0);
+    }
+
+    /* redundant_pic_cnt_present_flag == 0 */
+    /* slice type */
+    if (IS_P_SLICE(sliceParam.slice_type)) {
+        bs.PutUI(sliceParam.num_ref_idx_active_override_flag, 1);            /* num_ref_idx_active_override_flag: */
+
+        if (sliceParam.num_ref_idx_active_override_flag)
+            bs.PutUE(sliceParam.num_ref_idx_l0_active_minus1);
+
+        /* ref_pic_list_reordering */
+        bs.PutUI(0, 1);            /* ref_pic_list_reordering_flag_l0: 0 */
+    }
+
+    if ((picParam.pic_fields.bits.weighted_pred_flag &&
+         IS_P_SLICE(sliceParam.slice_type))) {
+        /* FIXME: fill weight/offset table */
+        assert(0);
+    }
+
+    /* dec_ref_pic_marking */
+    if (picParam.pic_fields.bits.reference_pic_flag) {     /* nal_ref_idc != 0 */
+        unsigned char no_output_of_prior_pics_flag = 0;
+        unsigned char long_term_reference_flag = 0;
+        unsigned char adaptive_ref_pic_marking_mode_flag = 0;
+
+        if (picParam.pic_fields.bits.idr_pic_flag) {
+            bs.PutUI(no_output_of_prior_pics_flag, 1);            /* no_output_of_prior_pics_flag: 0 */
+            bs.PutUI(long_term_reference_flag, 1);            /* long_term_reference_flag: 0 */
+        } else {
+            bs.PutUI(adaptive_ref_pic_marking_mode_flag, 1);            /* adaptive_ref_pic_marking_mode_flag: 0 */
+        }
+    }
+
+    if (picParam.pic_fields.bits.entropy_coding_mode_flag &&
+        !IS_I_SLICE(sliceParam.slice_type))
+        bs.PutUE(sliceParam.cabac_init_idc);               /* cabac_init_idc: 0 */
+
+    bs.PutSE(sliceParam.slice_qp_delta);                   /* slice_qp_delta: 0 */
+
+    /* ignore for SP/SI */
+
+    if (picParam.pic_fields.bits.deblocking_filter_control_present_flag) {
+        bs.PutUE(sliceParam.disable_deblocking_filter_idc);           /* disable_deblocking_filter_idc: 0 */
+
+        if (sliceParam.disable_deblocking_filter_idc != 1) {
+            bs.PutSE(sliceParam.slice_alpha_c0_offset_div2);          /* slice_alpha_c0_offset_div2: 2 */
+            bs.PutSE(sliceParam.slice_beta_offset_div2);              /* slice_beta_offset_div2: 2 */
+        }
+    }
+
+    if (picParam.pic_fields.bits.entropy_coding_mode_flag) {
+        bs.ByteAligning(1);
+    }
+}
+
+int BuildPackedSliceBuffer( BitStream& bs,
+                            VAEncPictureParameterBufferH264& picParam,
+                            VAEncSliceParameterBufferH264& sliceParam,
+                            VAEncSequenceParameterBufferH264& seqParam,
+                            bool annexB )
+{
+    int is_idr = !!picParam.pic_fields.bits.idr_pic_flag;
+    int is_ref = !!picParam.pic_fields.bits.reference_pic_flag;
+
+    if( annexB )
+        NALStartCodePrefix( bs );
+
+    if (IS_I_SLICE(sliceParam.slice_type))
+        NALHeader( bs, NAL_REF_IDC_HIGH, is_idr ? NAL_IDR : NAL_NON_IDR );
+    else NALHeader( bs, NAL_REF_IDC_MEDIUM, NAL_NON_IDR );
+
+    _SliceHeader( bs, picParam, sliceParam, seqParam );
 
     bs.End();
 

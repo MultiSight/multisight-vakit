@@ -91,7 +91,7 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     else X_THROW(( "Required option missing: height" ));
 
     if( !options.bit_rate.IsNull() )
-        _frameBitRate = (options.bit_rate.Value() / 1000) / 8;
+        _frameBitRate = (options.bit_rate.Value() / 1024) / 8;
     else X_THROW(( "Required option missing: bit_rate" ));
 
     if( !options.gop_size.IsNull() )
@@ -129,7 +129,6 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     default:
         _h264Profile = VAProfileH264Baseline;
         _constraintSetFlag |= (1 << 0); /* Annex A.2.1 */
-        _h264EntropyMode = 0;
         break;
     }
 
@@ -141,7 +140,12 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     configAttribNum++;
 
     configAttrib[configAttribNum].type = VAConfigAttribRateControl;
-    configAttrib[configAttribNum].value = VA_RC_CBR;
+    configAttrib[configAttribNum].value = VA_RC_VBR;
+    configAttribNum++;
+
+    configAttrib[configAttribNum].type = VAConfigAttribEncPackedHeaders;
+    configAttrib[configAttribNum].value = VA_ENC_PACKED_HEADER_NONE;
+    configAttrib[configAttribNum].value = VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_PICTURE | VA_ENC_PACKED_HEADER_SLICE;
     configAttribNum++;
 
     status = vaCreateConfig( _display,
@@ -167,6 +171,7 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
                                1,
                                NULL,
                                0 );
+
     if( status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaCreateSurfaces (%s).", vaErrorStr(status) ));
 
@@ -176,9 +181,10 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
                                _frameWidthMBAligned,
                                _frameHeightMBAligned,
                                &_refSurfaceIDs[0],
-                               NUM_REFERENCE_FRAMES,
+                               SURFACE_NUM,
                                NULL,
                                0 );
+
     if( status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaCreateSurfaces (%s).", vaErrorStr(status) ));
 
@@ -220,7 +226,7 @@ VAH264Encoder::~VAH264Encoder() throw()
 
     vaDestroyContext( _display, _contextID );
 
-    vaDestroySurfaces( _display, &_refSurfaceIDs[0], NUM_REFERENCE_FRAMES );
+    vaDestroySurfaces( _display, &_refSurfaceIDs[0], SURFACE_NUM );
 
     vaDestroySurfaces( _display, &_srcSurfaceID, 1 );
 
@@ -260,10 +266,13 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
 
     if( _currentFrameType == FRAME_IDR )
     {
-        if( _currentFrameNum == 0 )
-            _RenderSequence();
+//        if( _currentFrameNum == 0 )
+        _RenderSequence();
 
         _RenderPicture( false );
+
+        _RenderPackedSPS();
+        _RenderPackedPPS();
 
         if( !_extraData.Get() )
         {
@@ -274,7 +283,7 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
                                   _constraintSetFlag,
                                   _timeBaseNum,
                                   _timeBaseDen,
-                                  _frameBitRate );
+                                  _frameBitRate * 1024 * 8 );
 
             BitStream ppsBS;
             BuildPackedPicBuffer( ppsBS, _picParam );
@@ -306,7 +315,8 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
         X_THROW(( "Unable to vaMapBuffer (%s).", vaErrorStr(status) ));
 
     VACodedBufferSegment* current = bufList;
-    uint32_t accumSize = (_annexB) ? _extraData->GetDataSize() : 0;
+
+    uint32_t accumSize = 0;
 
     while( current != NULL )
     {
@@ -318,12 +328,6 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
         X_THROW(("Not enough room in output buffer."));
 
     uint8_t* dst = output;
-
-    if( _annexB )
-    {
-        memcpy( dst, _extraData->Map(), _extraData->GetDataSize() );
-        dst += _extraData->GetDataSize();
-    }
 
     while( bufList != NULL )
     {
@@ -428,8 +432,8 @@ void VAH264Encoder::_UpdateReferenceFrames()
     _currentCurrPic.flags = VA_PICTURE_H264_SHORT_TERM_REFERENCE;
     _numShortTerm++;
 
-    if( _numShortTerm > NUM_REFERENCE_FRAMES )
-        _numShortTerm = NUM_REFERENCE_FRAMES;
+    if( _numShortTerm > SURFACE_NUM )
+        _numShortTerm = SURFACE_NUM;
 
     for( int i = _numShortTerm - 1; i > 0; i-- )
         _referenceFrames[i] = _referenceFrames[i-1];
@@ -460,7 +464,7 @@ void VAH264Encoder::_UpdateRefPicList()
 void VAH264Encoder::_RenderSequence()
 {
 #ifndef WIN32
-    VABufferID seq_param_buf, rc_param_buf, misc_param_tmpbuf, render_id[3];
+    VABufferID seq_param_buf, rc_param_buf, misc_param_tmpbuf, render_id[2];
     VAStatus status;
     VAEncMiscParameterBuffer *misc_param, *misc_param_tmp;
     VAEncMiscParameterRateControl *misc_rate_ctrl;
@@ -470,13 +474,13 @@ void VAH264Encoder::_RenderSequence()
     _seqParam.picture_height_in_mbs = _frameHeightMBAligned / 16;
     _seqParam.bits_per_second = _frameBitRate * 1024 * 8;
     _seqParam.intra_period = _intraPeriod;
-    _seqParam.intra_idr_period = _intraPeriod;
+    _seqParam.intra_idr_period = _intraPeriod * 64;
     _seqParam.ip_period = 1;
 
     _seqParam.max_num_ref_frames = NUM_REFERENCE_FRAMES;
     _seqParam.seq_fields.bits.frame_mbs_only_flag = 1;
-    _seqParam.time_scale = _timeBaseDen * 2;
-    _seqParam.num_units_in_tick = _timeBaseNum;
+    _seqParam.time_scale = 900;
+    _seqParam.num_units_in_tick = _timeBaseDen;
     _seqParam.seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 = LOG_2_MAX_PIC_ORDER_CNT_LSB - 4;
     _seqParam.seq_fields.bits.log2_max_frame_num_minus4 = LOG_2_MAX_FRAME_NUM - 4;
     _seqParam.seq_fields.bits.frame_mbs_only_flag = 1;
@@ -525,52 +529,26 @@ void VAH264Encoder::_RenderSequence()
     memset( misc_rate_ctrl, 0, sizeof(*misc_rate_ctrl) );
 
     misc_rate_ctrl->bits_per_second = _frameBitRate * 1024 * 8;
+    misc_rate_ctrl->target_percentage = 66;
+    misc_rate_ctrl->window_size = 1000;
     misc_rate_ctrl->initial_qp = 26;
     misc_rate_ctrl->min_qp = 1;
+    misc_rate_ctrl->basic_unit_size = 0;
 
     vaUnmapBuffer( _display, rc_param_buf );
-
-    // HRD...
-
-    VABufferID misc_parameter_hrd_buf_id;
-
-    VAEncMiscParameterHRD *misc_hrd_param = NULL;
-    status = vaCreateBuffer( _display,
-                             _contextID,
-                             VAEncMiscParameterBufferType,
-                             sizeof(VAEncMiscParameterBuffer) + sizeof(VAEncMiscParameterRateControl),
-                             1,
-                             NULL,
-                             &misc_parameter_hrd_buf_id );
-    if( status != VA_STATUS_SUCCESS )
-        X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(status) ));
-
-    vaMapBuffer( _display,
-                 misc_parameter_hrd_buf_id,
-                 (void **)&misc_param );
-    if( !misc_param )
-        X_THROW(( "Unable to vaMapBuffer." ));
-
-    misc_param->type = VAEncMiscParameterTypeHRD;
-    misc_hrd_param = (VAEncMiscParameterHRD *)misc_param->data;
-
-    misc_hrd_param->initial_buffer_fullness = _frameBitRate * 1024 * 4;
-    misc_hrd_param->buffer_size = _frameBitRate * 1024 * 8;
-
-    vaUnmapBuffer( _display, misc_parameter_hrd_buf_id );
 
     // Push buffers to hardware...
 
     render_id[0] = seq_param_buf;
     render_id[1] = rc_param_buf;
-    render_id[2] = misc_parameter_hrd_buf_id;
 
     // According to documentation, vaRenderPicture recycles the buffers given to it
     // so we apparently do not owe vaDestroyBuffers() for the above buffers.
 
-    status = vaRenderPicture( _display, _contextID, &render_id[0], 3 );
+    status = vaRenderPicture( _display, _contextID, &render_id[0], 2 );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaRenderPicture (%s).", vaErrorStr(status) ));
+
 #else
     X_THROW(("Windows not supported."));
 #endif
@@ -615,7 +593,7 @@ void VAH264Encoder::_RenderPicture( bool done )
 #ifndef WIN32
     VABufferID pic_param_buf;
 
-    _picParam.CurrPic.picture_id = _refSurfaceIDs[(_currentFrameNum % NUM_REFERENCE_FRAMES)];
+    _picParam.CurrPic.picture_id = _refSurfaceIDs[(_currentFrameNum % SURFACE_NUM)];
     _picParam.CurrPic.frame_idx = _currentFrameNum;
     _picParam.CurrPic.flags = 0;
     _picParam.CurrPic.TopFieldOrderCnt =
@@ -628,7 +606,7 @@ void VAH264Encoder::_RenderPicture( bool done )
             _referenceFrames,
             _numShortTerm*sizeof(VAPictureH264) );
 
-    for (int i = _numShortTerm; i < NUM_REFERENCE_FRAMES; i++)
+    for (int i = _numShortTerm; i < SURFACE_NUM; i++)
     {
         _picParam.ReferenceFrames[i].picture_id = VA_INVALID_SURFACE;
         _picParam.ReferenceFrames[i].flags = VA_PICTURE_H264_INVALID;
@@ -659,6 +637,164 @@ void VAH264Encoder::_RenderPicture( bool done )
                               1 );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaRenderPicture (%s).", vaErrorStr(status) ));
+#else
+    X_THROW(("Windows not supported."));
+#endif
+}
+
+void VAH264Encoder::_RenderPackedPPS()
+{
+#ifndef WIN32
+    BitStream ppsBS;
+    BuildPackedPicBuffer( ppsBS, _picParam );
+
+    VAEncPackedHeaderParameterBuffer packedheader_param_buffer;
+    packedheader_param_buffer.type = VAEncPackedHeaderPicture;
+    packedheader_param_buffer.bit_length = ppsBS.SizeInBits();
+    packedheader_param_buffer.has_emulation_bytes = 0;
+
+    VABufferID packedpic_para_bufid;
+
+    VAStatus va_status = vaCreateBuffer( _display,
+                                         _contextID,
+                                         VAEncPackedHeaderParameterBufferType,
+                                         sizeof(packedheader_param_buffer),
+                                         1,
+                                         &packedheader_param_buffer,
+                                         &packedpic_para_bufid );
+
+    if( va_status != VA_STATUS_SUCCESS )
+        X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(va_status) ));
+
+    VABufferID packedpic_data_bufid;
+
+    va_status = vaCreateBuffer( _display,
+                                _contextID,
+                                VAEncPackedHeaderDataBufferType,
+                                (ppsBS.SizeInBits() + 7) / 8,
+                                1,
+                                ppsBS.Map(),
+                                &packedpic_data_bufid );
+
+    if( va_status != VA_STATUS_SUCCESS )
+        X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(va_status) ));
+
+    VABufferID render_id[2];
+    render_id[0] = packedpic_para_bufid;
+    render_id[1] = packedpic_data_bufid;
+    va_status = vaRenderPicture( _display, _contextID, render_id, 2 );
+
+    if( va_status != VA_STATUS_SUCCESS )
+        X_THROW(( "Unable to vaRenderPicture (%s).", vaErrorStr(va_status) ));
+#else
+    X_THROW(("Windows not supported."));
+#endif
+}
+
+void VAH264Encoder::_RenderPackedSPS()
+{
+#ifndef WIN32
+    BitStream seqBS;
+    BuildPackedSeqBuffer( seqBS,
+                          _seqParam,
+                          _h264Profile,
+                          _constraintSetFlag,
+                          _timeBaseNum,
+                          _timeBaseDen,
+                          _frameBitRate * 1024 * 8 );
+
+    VAEncPackedHeaderParameterBuffer packedheader_param_buffer;
+    packedheader_param_buffer.type = VAEncPackedHeaderSequence;
+    packedheader_param_buffer.bit_length = seqBS.SizeInBits();
+    packedheader_param_buffer.has_emulation_bytes = 0;
+
+    VABufferID packedseq_para_bufid;
+
+    VAStatus va_status = vaCreateBuffer( _display,
+                                         _contextID,
+                                         VAEncPackedHeaderParameterBufferType,
+                                         sizeof(packedheader_param_buffer),
+                                         1,
+                                         &packedheader_param_buffer,
+                                         &packedseq_para_bufid );
+
+    if( va_status != VA_STATUS_SUCCESS )
+        X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(va_status) ));
+
+    VABufferID packedseq_data_bufid;
+
+    va_status = vaCreateBuffer( _display,
+                                _contextID,
+                                VAEncPackedHeaderDataBufferType,
+                                (seqBS.SizeInBits() + 7) / 8,
+                                1,
+                                seqBS.Map(),
+                                &packedseq_data_bufid);
+
+    if( va_status != VA_STATUS_SUCCESS )
+        X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(va_status) ));
+
+    VABufferID render_id[2];
+    render_id[0] = packedseq_para_bufid;
+    render_id[1] = packedseq_data_bufid;
+
+    va_status = vaRenderPicture( _display, _contextID, render_id, 2 );
+
+    if( va_status != VA_STATUS_SUCCESS )
+        X_THROW(( "Unable to vaRenderPicture (%s).", vaErrorStr(va_status) ));
+#else
+    X_THROW(("Windows not supported."));
+#endif
+}
+
+void VAH264Encoder::_RenderPackedSlice()
+{
+#ifndef WIN32
+
+    BitStream sliceBS;
+    BuildPackedSliceBuffer( sliceBS, _picParam, _sliceParam, _seqParam, _annexB );
+
+    VAEncPackedHeaderParameterBuffer packedheader_param_buffer;
+    packedheader_param_buffer.type = VAEncPackedHeaderSlice;
+    packedheader_param_buffer.bit_length = sliceBS.SizeInBits();
+    packedheader_param_buffer.has_emulation_bytes = 0;
+
+    VABufferID packedslice_para_bufid;
+
+    VAStatus va_status = vaCreateBuffer( _display,
+                                         _contextID,
+                                         VAEncPackedHeaderParameterBufferType,
+                                         sizeof(packedheader_param_buffer),
+                                         1,
+                                         &packedheader_param_buffer,
+                                         &packedslice_para_bufid );
+
+    if( va_status != VA_STATUS_SUCCESS )
+        X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(va_status) ));
+
+    VABufferID packedslice_data_bufid;
+
+    va_status = vaCreateBuffer( _display,
+                                _contextID,
+                                VAEncPackedHeaderDataBufferType,
+                                (sliceBS.SizeInBits() + 7) / 8,
+                                1,
+                                sliceBS.Map(),
+                                &packedslice_data_bufid );
+
+    if( va_status != VA_STATUS_SUCCESS )
+        X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(va_status) ));
+
+    VABufferID render_id[2];
+
+    render_id[0] = packedslice_para_bufid;
+    render_id[1] = packedslice_data_bufid;
+
+    va_status = vaRenderPicture( _display, _contextID, render_id, 2 );
+
+    if( va_status != VA_STATUS_SUCCESS )
+        X_THROW(( "Unable to vaRenderPicture (%s).", vaErrorStr(va_status) ));
+
 #else
     X_THROW(("Windows not supported."));
 #endif
@@ -700,6 +836,8 @@ void VAH264Encoder::_RenderSlice()
     _sliceParam.slice_beta_offset_div2 = 0;
     _sliceParam.direct_spatial_mv_pred_flag = 1;
     _sliceParam.pic_order_cnt_lsb = (_currentFrameNum - _currentIDRDisplay) % MAX_PIC_ORDER_CNT_LSB;
+
+    //_RenderPackedSlice();
 
     VAStatus status = vaCreateBuffer( _display,
                                       _contextID,

@@ -145,7 +145,8 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
 
     configAttrib[configAttribNum].type = VAConfigAttribEncPackedHeaders;
     configAttrib[configAttribNum].value = VA_ENC_PACKED_HEADER_NONE;
-    configAttrib[configAttribNum].value = VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_PICTURE | VA_ENC_PACKED_HEADER_SLICE;
+    configAttrib[configAttribNum].value = VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_PICTURE;
+// | VA_ENC_PACKED_HEADER_SLICE;
     configAttribNum++;
 
     status = vaCreateConfig( _display,
@@ -837,7 +838,7 @@ void VAH264Encoder::_RenderSlice()
     _sliceParam.direct_spatial_mv_pred_flag = 1;
     _sliceParam.pic_order_cnt_lsb = (_currentFrameNum - _currentIDRDisplay) % MAX_PIC_ORDER_CNT_LSB;
 
-    //_RenderPackedSlice();
+//    _RenderPackedSlice();
 
     VAStatus status = vaCreateBuffer( _display,
                                       _contextID,

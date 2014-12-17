@@ -2,6 +2,7 @@
 #include "VAKit/VAH264Decoder.h"
 #include "MediaParser/MediaParser.h"
 #include "XSDK/XException.h"
+#include "XSDK/XGuard.h"
 
 extern "C"
 {
@@ -32,8 +33,10 @@ VAH264Decoder::VAH264Decoder( const struct CodecOptions& options )
     _fd( -1 ),
     _vc(),
     _attrib(),
-    _surfaceID(),
-    _derivedImage()
+    _surfaces(),
+    _derivedImage(),
+    _surfaceLock(),
+    _surfaceOrder( 0 )
 #endif
 {
 #ifndef WIN32
@@ -96,19 +99,25 @@ void VAH264Decoder::Decode( uint8_t* frame, size_t frameSize )
 
     int gotPicture = 0;
     int ret = 0;
+    int decodeAttempts = 16;
 
-    ret = avcodec_decode_video2( _context,
-                                 _frame,
-                                 &gotPicture,
-                                 &inputPacket );
-    if( ret < 0 )
-        X_THROW(( "Decoding returned error: %d", ret ));
+    while( !gotPicture && decodeAttempts > 0 )
+    {
+        ret = avcodec_decode_video2( _context,
+                                     _frame,
+                                     &gotPicture,
+                                     &inputPacket );
+        if( ret < 0 )
+            X_THROW(( "Decoding returned error: %d", ret ));
+
+        decodeAttempts--;
+    }
 
     if( gotPicture < 1 )
         X_THROW(( "Unable to decode frame." ));
 
     VAStatus status = vaGetImage( _vc.display,
-                                  _surfaceID,
+                                  (VASurfaceID)(uintptr_t)_frame->data[3],
                                   0,
                                   0,
                                   _context->width,
@@ -271,6 +280,7 @@ void VAH264Decoder::MakeYUV420P( uint8_t* dest )
     srcStrides[0] = Y_pitch;
     srcStrides[1] = U_pitch;
 
+
     int ret = sws_scale( _scaler,
                          srcPlanes,
                          srcStrides,
@@ -280,6 +290,7 @@ void VAH264Decoder::MakeYUV420P( uint8_t* dest )
                          pict.linesize );
     if( ret <= 0 )
         X_THROW(( "Unable to create YUV420P image." ));
+
 #endif
 }
 
@@ -364,24 +375,30 @@ void VAH264Decoder::_InitVAAPIDecoder()
     if( status != VA_STATUS_SUCCESS )
         X_THROW(("Unable to vaCreateConfig(): %s\n", vaErrorStr(status)));
 
+    VASurfaceID surfaceIDs[NUM_VA_BUFFERS];
     status = vaCreateSurfaces( _vc.display,
-                               VA_RT_FORMAT_YUV420,
                                _context->width,
                                _context->height,
-                               &_surfaceID,
-                               1,
-                               NULL,
-                               0 );
+                               VA_RT_FORMAT_YUV420,
+                               NUM_VA_BUFFERS,
+                               surfaceIDs );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(("Unable to vaCreateSurfaces(): %s\n", vaErrorStr(status)));
+
+    for( int i = 0; i < NUM_VA_BUFFERS; i++ )
+    {
+        _surfaces[i].id = surfaceIDs[i];
+        _surfaces[i].refcount = 0;
+        _surfaces[i].order = 0;
+    }
 
     status = vaCreateContext( _vc.display,
                               _vc.config_id,
                               _context->width,
                               _context->height,
                               VA_PROGRESSIVE,
-                              &_surfaceID,
-                              1,
+                              surfaceIDs,
+                              NUM_VA_BUFFERS,
                               &_vc.context_id );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(("Unable to vaCreateContext(): %s\n", vaErrorStr(status)));
@@ -420,7 +437,10 @@ void VAH264Decoder::_DestroyVAAPIDecoder()
     {
         vaDestroyImage( _vc.display, _derivedImage.image_id );
         vaDestroyContext( _vc.display, _vc.context_id );
-        vaDestroySurfaces( _vc.display, &_surfaceID, 1 );
+        for( int i = 0; i < NUM_VA_BUFFERS; i++ )
+        {
+            vaDestroySurfaces( _vc.display, &_surfaces[i].id, 1 );
+        }
         vaDestroyConfig( _vc.display, _vc.config_id );
         vaTerminate( _vc.display );
 
@@ -466,11 +486,39 @@ int VAH264Decoder::_GetBuffer( struct AVCodecContext* avctx, AVFrame* pic )
     if( !context )
         X_THROW(("Unable to get decoder context."));
 
+    int oldest, i;
+
+    {
+        XGuard g( context->_surfaceLock );
+
+        for( i = 0, oldest = 0; i < NUM_VA_BUFFERS; i++ )
+        {
+            struct HWSurface* surface = &context->_surfaces[i];
+
+            if( !surface->refcount )
+                break;
+
+            if( surface->order < context->_surfaces[oldest].order )
+                oldest = i;
+        }
+        if( i >= NUM_VA_BUFFERS )
+            i = oldest;
+    }
+
+    struct HWSurface* surface = &context->_surfaces[i];
+
+    surface->refcount = 1;
+    surface->order = context->_surfaceOrder++;
+
+    /* data[0] must be non-NULL for libavcodec internal checks.
+     * data[3] actually contains the format-specific surface handle. */
+
+    pic->opaque = surface;
     pic->type = FF_BUFFER_TYPE_USER;
-    pic->data[0] = (uint8_t*)(uintptr_t)context->_surfaceID;
+    pic->data[0] = (uint8_t*)(uintptr_t)surface->id;
     pic->data[1] = NULL;
     pic->data[2] = NULL;
-    pic->data[3] = (uint8_t*)(uintptr_t)context->_surfaceID;
+    pic->data[3] = (uint8_t*)(uintptr_t)surface->id;
     pic->linesize[0] = 0;
     pic->linesize[1] = 0;
     pic->linesize[2] = 0;
@@ -485,6 +533,16 @@ int VAH264Decoder::_GetBuffer( struct AVCodecContext* avctx, AVFrame* pic )
 void VAH264Decoder::_ReleaseBuffer( struct AVCodecContext* avctx, AVFrame* pic )
 {
 #ifndef WIN32
+    VAH264Decoder* context = (VAH264Decoder*)avctx->opaque;
+    if( !context )
+        X_THROW(("Unable to get decoder context."));
+
+    {
+        XGuard g( context->_surfaceLock );
+        struct HWSurface* surface = (struct HWSurface*)pic->opaque;
+        surface->refcount--;
+    }
+
     pic->data[0] = NULL;
     pic->data[1] = NULL;
     pic->data[2] = NULL;

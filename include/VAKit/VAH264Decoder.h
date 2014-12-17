@@ -7,6 +7,7 @@
 
 #include "XSDK/Types.h"
 #include "XSDK/XMemory.h"
+#include "XSDK/XMutex.h"
 
 extern "C"
 {
@@ -17,11 +18,21 @@ extern "C"
 #ifndef WIN32
 #include <va/va.h>
 #include <va/va_drm.h>
+#include <va/va_compat.h>
 #endif
 }
 
 namespace VAKit
 {
+
+struct HWSurface
+{
+    VASurfaceID id;
+    int refcount;
+    unsigned int order;
+};
+
+static const int NUM_VA_BUFFERS = 18;
 
 class VAH264Decoder : public AVKit::Decoder
 {
@@ -74,8 +85,10 @@ private:
     int _fd;
     struct vaapi_context _vc;
     VAConfigAttrib _attrib;
-    VASurfaceID _surfaceID;
+    struct HWSurface _surfaces[NUM_VA_BUFFERS];
     VAImage _derivedImage;
+    XSDK::XMutex _surfaceLock;
+    unsigned int _surfaceOrder;
 #endif
 };
 

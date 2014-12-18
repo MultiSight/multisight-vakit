@@ -24,9 +24,8 @@ static const size_t DEFAULT_ENCODE_BUFFER_SIZE = (1024*1024);
 static const size_t DEFAULT_EXTRADATA_BUFFER_SIZE = (1024*256);
 
 VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
-                              bool annexB )
-#ifndef WIN32
-  : _devicePath(),
+                              bool annexB ) :
+    _devicePath(),
     _annexB( annexB ),
     _fd(-1),
     _display(),
@@ -58,13 +57,7 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     _extraData(),
     _pkt(),
     _options( options )
-#endif
 {
-#ifdef WIN32
-    X_THROW(("VAKit does not currently support Windows."));
-#endif
-
-#ifndef WIN32
     if( options.device_path.IsNull() )
         X_THROW(("device_path needed for VAH264Encoder."));
 
@@ -146,7 +139,6 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     configAttrib[configAttribNum].type = VAConfigAttribEncPackedHeaders;
     configAttrib[configAttribNum].value = VA_ENC_PACKED_HEADER_NONE;
     configAttrib[configAttribNum].value = VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_PICTURE;
-// | VA_ENC_PACKED_HEADER_SLICE;
     configAttribNum++;
 
     status = vaCreateConfig( _display,
@@ -217,12 +209,10 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
                              &_codedBufID );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(status) ));
-#endif
 }
 
 VAH264Encoder::~VAH264Encoder() throw()
 {
-#ifndef WIN32
     vaDestroyBuffer( _display, _codedBufID );
 
     vaDestroyContext( _display, _contextID );
@@ -236,7 +226,6 @@ VAH264Encoder::~VAH264Encoder() throw()
     vaTerminate( _display );
 
     close( _fd );
-#endif
 }
 
 size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
@@ -244,7 +233,6 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
                                      size_t outputSize,
                                      AVKit::FrameType type )
 {
-#ifndef WIN32
     VAImage image;
     vaDeriveImage( _display, _srcSurfaceID, &image );
 
@@ -267,12 +255,12 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
 
     if( _currentFrameType == FRAME_IDR )
     {
-//        if( _currentFrameNum == 0 )
         _RenderSequence();
 
         _RenderPicture( false );
 
         _RenderPackedSPS();
+
         _RenderPackedPPS();
 
         if( !_extraData.Get() )
@@ -340,15 +328,11 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
     vaUnmapBuffer( _display, _codedBufID );
 
     return accumSize;
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 XIRef<XMemory> VAH264Encoder::EncodeYUV420P( XIRef<XMemory> input,
                                              AVKit::FrameType type )
 {
-#ifndef WIN32
     XIRef<XMemory> frame = new XMemory( DEFAULT_ENCODE_BUFFER_SIZE + DEFAULT_PADDING );
 
     uint8_t* p = &frame->Extend( DEFAULT_ENCODE_BUFFER_SIZE );
@@ -361,46 +345,30 @@ XIRef<XMemory> VAH264Encoder::EncodeYUV420P( XIRef<XMemory> input,
     frame->ResizeData( outputSize );
 
     return frame;
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 bool VAH264Encoder::LastWasKey() const
 {
-#ifndef WIN32
     return (_currentFrameType == FRAME_IDR) ? true : (_currentFrameType == FRAME_I) ? true : false;
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 struct CodecOptions VAH264Encoder::GetOptions() const
 {
-#ifndef WIN32
     return _options;
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 XIRef<XMemory> VAH264Encoder::GetExtraData() const
 {
-#ifndef WIN32
     if( _extraData->GetDataSize() == 0 )
         X_THROW(("Decode one frame before call to GetExtraData()."));
 
     return _extraData;
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 int32_t VAH264Encoder::_ComputeCurrentFrameType( uint32_t currentFrameNum,
                                                  int32_t intraPeriod,
                                                  AVKit::FrameType type ) const
 {
-#ifndef WIN32
     if( type == FRAME_TYPE_AUTO_GOP )
     {
         if( (currentFrameNum % intraPeriod) == 0 )
@@ -422,14 +390,10 @@ int32_t VAH264Encoder::_ComputeCurrentFrameType( uint32_t currentFrameNum,
         }
         else return FRAME_P;
     }
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 void VAH264Encoder::_UpdateReferenceFrames()
 {
-#ifndef WIN32
     _currentCurrPic.flags = VA_PICTURE_H264_SHORT_TERM_REFERENCE;
     _numShortTerm++;
 
@@ -445,26 +409,18 @@ void VAH264Encoder::_UpdateReferenceFrames()
 
     if( _currentFrameNum > MAX_FRAME_NUM )
         _currentFrameNum = 0;
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 void VAH264Encoder::_UpdateRefPicList()
 {
-#ifndef WIN32
     uint32_t current_poc = _currentCurrPic.TopFieldOrderCnt;
 
     if( _currentFrameType == FRAME_P )
         memcpy( _refPicListP, _referenceFrames, _numShortTerm * sizeof(VAPictureH264));
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 void VAH264Encoder::_RenderSequence()
 {
-#ifndef WIN32
     VABufferID seq_param_buf, rc_param_buf, misc_param_tmpbuf, render_id[2];
     VAStatus status;
     VAEncMiscParameterBuffer *misc_param, *misc_param_tmp;
@@ -507,7 +463,6 @@ void VAH264Encoder::_RenderSequence()
     if( status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(status) ));
 
-
     // Rate control...
 
     status = vaCreateBuffer( _display,
@@ -549,15 +504,10 @@ void VAH264Encoder::_RenderSequence()
     status = vaRenderPicture( _display, _contextID, &render_id[0], 2 );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaRenderPicture (%s).", vaErrorStr(status) ));
-
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 int32_t VAH264Encoder::_CalcPOC( int32_t picOrderCntLSB )
 {
-#ifndef WIN32
     static int picOrderCntMsbRef = 0, picOrderCntLsbRef = 0;
     int prevPicOrderCntMsb = 0, prevPicOrderCntLsb = 0;
     int picOrderCntMsb = 0, topFieldOrderCnt = 0;
@@ -584,14 +534,10 @@ int32_t VAH264Encoder::_CalcPOC( int32_t picOrderCntLSB )
     picOrderCntLsbRef = picOrderCntLSB;
 
     return topFieldOrderCnt;
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 void VAH264Encoder::_RenderPicture( bool done )
 {
-#ifndef WIN32
     VABufferID pic_param_buf;
 
     _picParam.CurrPic.picture_id = _refSurfaceIDs[(_currentFrameNum % SURFACE_NUM)];
@@ -638,14 +584,10 @@ void VAH264Encoder::_RenderPicture( bool done )
                               1 );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaRenderPicture (%s).", vaErrorStr(status) ));
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 void VAH264Encoder::_RenderPackedPPS()
 {
-#ifndef WIN32
     BitStream ppsBS;
     BuildPackedPicBuffer( ppsBS, _picParam );
 
@@ -687,14 +629,10 @@ void VAH264Encoder::_RenderPackedPPS()
 
     if( va_status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaRenderPicture (%s).", vaErrorStr(va_status) ));
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 void VAH264Encoder::_RenderPackedSPS()
 {
-#ifndef WIN32
     BitStream seqBS;
     BuildPackedSeqBuffer( seqBS,
                           _seqParam,
@@ -743,14 +681,10 @@ void VAH264Encoder::_RenderPackedSPS()
 
     if( va_status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaRenderPicture (%s).", vaErrorStr(va_status) ));
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
 
 void VAH264Encoder::_RenderSlice()
 {
-#ifndef WIN32
     VABufferID slice_param_buf;
 
     _UpdateRefPicList();
@@ -801,12 +735,7 @@ void VAH264Encoder::_RenderSlice()
                               1 );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(status) ));
-#else
-    X_THROW(("Windows not supported."));
-#endif
 }
-
-#ifndef WIN32
 
 void VAH264Encoder::_UploadImage( uint8_t* yv12, VAImage& image, uint16_t width, uint16_t height )
 {
@@ -851,5 +780,3 @@ void VAH264Encoder::_UploadImage( uint8_t* yv12, VAImage& image, uint16_t width,
 
     vaUnmapBuffer( _display, image.buf );
 }
-
-#endif

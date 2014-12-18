@@ -2,16 +2,15 @@
 #ifndef __VAKit_VAH264Encoder_h
 #define __VAKit_VAH264Encoder_h
 
-#ifndef WIN32
 extern "C"
 {
 #include <va/va.h>
 #include <va/va_enc_h264.h>
 #include <va/va_drm.h>
 }
+
 #include <unistd.h>
 #include <fcntl.h>
-#endif
 
 #include "XSDK/Types.h"
 #include "XSDK/XSocket.h"
@@ -30,7 +29,6 @@ const size_t SURFACE_NUM = 16;
 class VAH264Encoder : public AVKit::Encoder
 {
 public:
-
     X_API VAH264Encoder( const struct AVKit::CodecOptions& options,
                          bool annexB = true );
 
@@ -66,7 +64,6 @@ private:
     void _RenderPackedSPS();
     void _RenderSlice();
 
-#ifndef WIN32
     void _UploadImage( uint8_t* yv12, VAImage& image, uint16_t width, uint16_t height );
 
     XSDK::XString _devicePath;
@@ -102,7 +99,6 @@ private:
     XIRef<XSDK::XMemory> _extraData;
     XIRef<XSDK::XMemory> _pkt;
     struct AVKit::CodecOptions _options;
-#endif
 };
 
 }

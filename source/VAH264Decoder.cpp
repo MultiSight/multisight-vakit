@@ -4,15 +4,8 @@
 #include "XSDK/XException.h"
 #include "XSDK/XGuard.h"
 
-extern "C"
-{
-#include "libavutil/opt.h"
-}
-
-#ifndef WIN32
 #include <fcntl.h>
 #include <unistd.h>
-#endif
 
 using namespace VAKit;
 using namespace AVKit;
@@ -20,9 +13,8 @@ using namespace XSDK;
 
 static const size_t DEFAULT_PADDING = 16;
 
-VAH264Decoder::VAH264Decoder( const struct CodecOptions& options )
-#ifndef WIN32
-  : _codec( avcodec_find_decoder( CODEC_ID_H264 ) ),
+VAH264Decoder::VAH264Decoder( const struct CodecOptions& options ) :
+    _codec( avcodec_find_decoder( CODEC_ID_H264 ) ),
     _context( avcodec_alloc_context3( _codec ) ),
     _options( options ),
     _frame( avcodec_alloc_frame() ),
@@ -34,12 +26,10 @@ VAH264Decoder::VAH264Decoder( const struct CodecOptions& options )
     _vc(),
     _attrib(),
     _surfaces(),
-    _derivedImage(),
+    _outputImage(),
     _surfaceLock(),
     _surfaceOrder( 0 )
-#endif
 {
-#ifndef WIN32
     if( !_codec )
         X_THROW(( "Failed to find H264 decoder." ));
 
@@ -49,8 +39,43 @@ VAH264Decoder::VAH264Decoder( const struct CodecOptions& options )
     if( !_frame )
         X_THROW(( "Failed to allocate frame." ));
 
-    _context->extradata = NULL;
-    _context->extradata_size = 0;
+    if( _options.device_path.IsNull() )
+        X_THROW(( "device_path required for VAH264Decoder." ));
+
+    // We stash our this pointer INSIDE our AVCodecContext because in some FFMPEG
+    // callback functions we use, we need to get at some members of our object...
+    _context->opaque = (void*)this;
+}
+
+VAH264Decoder::VAH264Decoder( AVDeMuxer& deMuxer, const struct CodecOptions& options ) :
+    _codec( avcodec_find_decoder( CODEC_ID_H264 ) ),
+    _context( avcodec_alloc_context3( _codec ) ),
+    _options( options ),
+    _frame( avcodec_alloc_frame() ),
+    _scaler( NULL ),
+    _outputWidth( 0 ),
+    _outputHeight( 0 ),
+    _initComplete( false ),
+    _fd( -1 ),
+    _vc(),
+    _attrib(),
+    _surfaces(),
+    _outputImage(),
+    _surfaceLock(),
+    _surfaceOrder( 0 )
+{
+    if( !_codec )
+        X_THROW(( "Failed to find H264 decoder." ));
+
+    if( !_context )
+        X_THROW(( "Failed to allocate decoder context." ));
+
+    if( !_frame )
+        X_THROW(( "Failed to allocate frame." ));
+
+    int videoStreamIndex = deMuxer.GetVideoStreamIndex();
+    if( avcodec_copy_context( _context, deMuxer.GetFormatContext()->streams[videoStreamIndex]->codec ) != 0 )
+        X_THROW(("Unable to copy codec context from demuxer."));
 
     if( _options.device_path.IsNull() )
         X_THROW(( "device_path required for VAH264Decoder." ));
@@ -58,14 +83,10 @@ VAH264Decoder::VAH264Decoder( const struct CodecOptions& options )
     // We stash our this pointer INSIDE our AVCodecContext because in some FFMPEG
     // callback functions we use, we need to get at some members of our object...
     _context->opaque = (void*)this;
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 VAH264Decoder::~VAH264Decoder() throw()
 {
-#ifndef WIN32
     _DestroyVAAPIDecoder();
 
     _DestroyScaler();
@@ -79,16 +100,13 @@ VAH264Decoder::~VAH264Decoder() throw()
 
         av_free( _context );
     }
-#endif
 }
 
 void VAH264Decoder::Decode( uint8_t* frame, size_t frameSize )
 {
-#ifndef WIN32
     if( !_initComplete )
     {
         _FinishFFMPEGInit( frame, frameSize );
-
         _initComplete = true;
     }
 
@@ -122,44 +140,28 @@ void VAH264Decoder::Decode( uint8_t* frame, size_t frameSize )
                                   0,
                                   _context->width,
                                   _context->height,
-                                  _derivedImage.image_id );
+                                  _outputImage.image_id );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(("Unable to vaGetImage(): %s\n", vaErrorStr(status)));
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 void VAH264Decoder::Decode( XIRef<XSDK::XMemory> frame )
 {
-#ifndef WIN32
     Decode( frame->Map(), frame->GetDataSize() );
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 uint16_t VAH264Decoder::GetInputWidth() const
 {
-#ifndef WIN32
     return (uint16_t)_context->width;
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 uint16_t VAH264Decoder::GetInputHeight() const
 {
-#ifndef WIN32
     return (uint16_t)_context->height;
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 void VAH264Decoder::SetOutputWidth( uint16_t outputWidth )
 {
-#ifndef WIN32
     if( _outputWidth != outputWidth )
     {
         _outputWidth = outputWidth;
@@ -167,21 +169,15 @@ void VAH264Decoder::SetOutputWidth( uint16_t outputWidth )
         if( _scaler )
             _DestroyScaler();
     }
-#endif
 }
 
 uint16_t VAH264Decoder::GetOutputWidth() const
 {
-#ifndef WIN32
     return _outputWidth;
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 void VAH264Decoder::SetOutputHeight( uint16_t outputHeight )
 {
-#ifndef WIN32
     if( _outputHeight != outputHeight )
     {
         _outputHeight = outputHeight;
@@ -189,33 +185,23 @@ void VAH264Decoder::SetOutputHeight( uint16_t outputHeight )
         if( _scaler )
             _DestroyScaler();
     }
-#endif
 }
 
 uint16_t VAH264Decoder::GetOutputHeight() const
 {
-#ifndef WIN32
     return _outputHeight;
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 size_t VAH264Decoder::GetYUV420PSize() const
 {
-#ifndef WIN32
     if( (_outputWidth == 0) || (_outputHeight == 0) )
         return _context->width * _context->height * 1.5;
 
     return _outputWidth * _outputHeight * 1.5;
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 void VAH264Decoder::MakeYUV420P( uint8_t* dest )
 {
-#ifndef WIN32
     if( _outputWidth == 0 )
         _outputWidth = _context->width;
 
@@ -223,20 +209,20 @@ void VAH264Decoder::MakeYUV420P( uint8_t* dest )
         _outputHeight = _context->height;
 
     unsigned char* surface_p = NULL;
-    VAStatus status = vaMapBuffer( _vc.display, _derivedImage.buf, (void **)&surface_p );
+    VAStatus status = vaMapBuffer( _vc.display, _outputImage.buf, (void **)&surface_p );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(("Unable to vaMapBuffer(): %s\n", vaErrorStr(status)));
 
-    unsigned char* Y_start = surface_p + _derivedImage.offsets[0];
-    int Y_pitch = _derivedImage.pitches[0];
+    unsigned char* Y_start = surface_p + _outputImage.offsets[0];
+    int Y_pitch = _outputImage.pitches[0];
 
     int U_pitch = 0;
     unsigned char* U_start = NULL;
-    switch (_derivedImage.format.fourcc)
+    switch (_outputImage.format.fourcc)
     {
     case VA_FOURCC_NV12:
-        U_start = (unsigned char *)surface_p + _derivedImage.offsets[1];
-        U_pitch = _derivedImage.pitches[1];
+        U_start = (unsigned char *)surface_p + _outputImage.offsets[1];
+        U_pitch = _outputImage.pitches[1];
         break;
     default:
         X_THROW(("Fall into the fourcc that is not handled"));
@@ -290,26 +276,19 @@ void VAH264Decoder::MakeYUV420P( uint8_t* dest )
                          pict.linesize );
     if( ret <= 0 )
         X_THROW(( "Unable to create YUV420P image." ));
-
-#endif
 }
 
 XIRef<XMemory> VAH264Decoder::MakeYUV420P()
 {
-#ifndef WIN32
     size_t pictureSize = GetYUV420PSize();
     XIRef<XMemory> buffer = new XMemory( pictureSize + DEFAULT_PADDING );
     uint8_t* p = &buffer->Extend( pictureSize );
     MakeYUV420P( p );
     return buffer;
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 void VAH264Decoder::_FinishFFMPEGInit( uint8_t* frame, size_t frameSize )
 {
-#ifndef WIN32
     MEDIA_PARSER::H264Info h264Info;
 
     if( !MEDIA_PARSER::MediaParser::GetMediaInfo( frame, frameSize, h264Info ) )
@@ -328,23 +307,19 @@ void VAH264Decoder::_FinishFFMPEGInit( uint8_t* frame, size_t frameSize )
 
     if( avcodec_open2( _context, _codec, NULL ) < 0 )
         X_THROW(( "Unable to open H264 decoder." ));
-#endif
 }
 
 void VAH264Decoder::_DestroyScaler()
 {
-#ifndef WIN32
     if( _scaler )
     {
         sws_freeContext( _scaler );
         _scaler = NULL;
     }
-#endif
 }
 
 void VAH264Decoder::_InitVAAPIDecoder()
 {
-#ifndef WIN32
     XString devicePath = _options.device_path.Value();
 
     _fd = open( devicePath.c_str(), O_RDWR );
@@ -424,23 +399,23 @@ void VAH264Decoder::_InitVAAPIDecoder()
                             nv12ImageFormat,
                             _context->width,
                             _context->height,
-                            &_derivedImage );
+                            &_outputImage );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(("Unable to vaCreateImage(): %s\n", vaErrorStr(status)));
-#endif
 }
 
 void VAH264Decoder::_DestroyVAAPIDecoder()
 {
-#ifndef WIN32
     if( _initComplete )
     {
-        vaDestroyImage( _vc.display, _derivedImage.image_id );
+        vaDestroyImage( _vc.display, _outputImage.image_id );
         vaDestroyContext( _vc.display, _vc.context_id );
+
         for( int i = 0; i < NUM_VA_BUFFERS; i++ )
         {
             vaDestroySurfaces( _vc.display, &_surfaces[i].id, 1 );
         }
+
         vaDestroyConfig( _vc.display, _vc.config_id );
         vaTerminate( _vc.display );
 
@@ -448,12 +423,10 @@ void VAH264Decoder::_DestroyVAAPIDecoder()
 
         _initComplete = false;
     }
-#endif
 }
 
 enum PixelFormat VAH264Decoder::_GetFormat( struct AVCodecContext *avctx, const enum PixelFormat *fmt )
 {
-#ifndef WIN32
     VAH264Decoder* context = (VAH264Decoder*)avctx->opaque;
     if( !context )
         X_THROW(("Unable to get decoder context."));
@@ -474,14 +447,10 @@ enum PixelFormat VAH264Decoder::_GetFormat( struct AVCodecContext *avctx, const 
     }
 
     return PIX_FMT_NONE;
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 int VAH264Decoder::_GetBuffer( struct AVCodecContext* avctx, AVFrame* pic )
 {
-#ifndef WIN32
     VAH264Decoder* context = (VAH264Decoder*)avctx->opaque;
     if( !context )
         X_THROW(("Unable to get decoder context."));
@@ -525,14 +494,10 @@ int VAH264Decoder::_GetBuffer( struct AVCodecContext* avctx, AVFrame* pic )
     pic->linesize[3] = 0;
 
     return 0;
-#else
-    X_THROW(("Not implemented."));
-#endif
 }
 
 void VAH264Decoder::_ReleaseBuffer( struct AVCodecContext* avctx, AVFrame* pic )
 {
-#ifndef WIN32
     VAH264Decoder* context = (VAH264Decoder*)avctx->opaque;
     if( !context )
         X_THROW(("Unable to get decoder context."));
@@ -547,5 +512,4 @@ void VAH264Decoder::_ReleaseBuffer( struct AVCodecContext* avctx, AVFrame* pic )
     pic->data[1] = NULL;
     pic->data[2] = NULL;
     pic->data[3] = NULL;
-#endif
 }

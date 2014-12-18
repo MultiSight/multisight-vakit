@@ -4,7 +4,7 @@
 
 #include "AVKit/Options.h"
 #include "AVKit/Decoder.h"
-
+#include "AVKit/AVDeMuxer.h"
 #include "XSDK/Types.h"
 #include "XSDK/XMemory.h"
 #include "XSDK/XMutex.h"
@@ -15,11 +15,10 @@ extern "C"
 #include "libavcodec/vaapi.h"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
-#ifndef WIN32
+
 #include <va/va.h>
 #include <va/va_drm.h>
 #include <va/va_compat.h>
-#endif
 }
 
 namespace VAKit
@@ -32,13 +31,13 @@ struct HWSurface
     unsigned int order;
 };
 
-static const int NUM_VA_BUFFERS = 18;
+static const int NUM_VA_BUFFERS = 16;
 
 class VAH264Decoder : public AVKit::Decoder
 {
 public:
     X_API VAH264Decoder( const struct AVKit::CodecOptions& options );
-
+    X_API VAH264Decoder( AVKit::AVDeMuxer& deMuxer, const struct AVKit::CodecOptions& options );
     X_API virtual ~VAH264Decoder() throw();
 
     X_API virtual void Decode( uint8_t* frame, size_t frameSize );
@@ -72,7 +71,6 @@ private:
     static int _GetBuffer( struct AVCodecContext* avctx, AVFrame* pic );
     static void _ReleaseBuffer( struct AVCodecContext* avctx, AVFrame* pic );
 
-#ifndef WIN32
     AVCodec* _codec;
     AVCodecContext* _context;
     struct AVKit::CodecOptions _options;
@@ -86,10 +84,9 @@ private:
     struct vaapi_context _vc;
     VAConfigAttrib _attrib;
     struct HWSurface _surfaces[NUM_VA_BUFFERS];
-    VAImage _derivedImage;
+    VAImage _outputImage;
     XSDK::XMutex _surfaceLock;
     unsigned int _surfaceOrder;
-#endif
 };
 
 }

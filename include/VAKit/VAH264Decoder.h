@@ -79,7 +79,6 @@ private:
     uint16_t _outputWidth;
     uint16_t _outputHeight;
     bool _initComplete;
-
     int _fd;
     struct vaapi_context _vc;
     VAConfigAttrib _attrib;

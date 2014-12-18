@@ -116,20 +116,12 @@ void VAH264Decoder::Decode( uint8_t* frame, size_t frameSize )
     inputPacket.size = frameSize;
 
     int gotPicture = 0;
-    int ret = 0;
-    int decodeAttempts = 16;
-
-    while( !gotPicture && decodeAttempts > 0 )
-    {
-        ret = avcodec_decode_video2( _context,
+    int ret = avcodec_decode_video2( _context,
                                      _frame,
                                      &gotPicture,
                                      &inputPacket );
-        if( ret < 0 )
-            X_THROW(( "Decoding returned error: %d", ret ));
-
-        decodeAttempts--;
-    }
+    if( ret < 0 )
+        X_THROW(( "Decoding returned error: %d", ret ));
 
     if( gotPicture < 1 )
         X_THROW(( "Unable to decode frame." ));
@@ -265,7 +257,6 @@ void VAH264Decoder::MakeYUV420P( uint8_t* dest )
     int srcStrides[2];
     srcStrides[0] = Y_pitch;
     srcStrides[1] = U_pitch;
-
 
     int ret = sws_scale( _scaler,
                          srcPlanes,
@@ -411,10 +402,11 @@ void VAH264Decoder::_DestroyVAAPIDecoder()
         vaDestroyImage( _vc.display, _outputImage.image_id );
         vaDestroyContext( _vc.display, _vc.context_id );
 
+        VASurfaceID surfaceIDs[NUM_VA_BUFFERS];
         for( int i = 0; i < NUM_VA_BUFFERS; i++ )
-        {
-            vaDestroySurfaces( _vc.display, &_surfaces[i].id, 1 );
-        }
+            surfaceIDs[i] = _surfaces[i].id;
+
+        vaDestroySurfaces( _vc.display, surfaceIDs, NUM_VA_BUFFERS );
 
         vaDestroyConfig( _vc.display, _vc.config_id );
         vaTerminate( _vc.display );
@@ -470,6 +462,7 @@ int VAH264Decoder::_GetBuffer( struct AVCodecContext* avctx, AVFrame* pic )
             if( surface->order < context->_surfaces[oldest].order )
                 oldest = i;
         }
+
         if( i >= NUM_VA_BUFFERS )
             i = oldest;
     }

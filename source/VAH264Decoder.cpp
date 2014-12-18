@@ -30,6 +30,16 @@ VAH264Decoder::VAH264Decoder( const struct CodecOptions& options ) :
     _surfaceLock(),
     _surfaceOrder( 0 )
 {
+    _outputImage.image_id = VA_INVALID_ID;
+    _vc.context_id = VA_INVALID_ID;
+
+    for( int i = 0; i < NUM_VA_BUFFERS; i++ )
+        _surfaces[i].id = VA_INVALID_ID;
+
+    _vc.config_id = VA_INVALID_ID;
+
+    _vc.display = NULL;
+
     if( !_codec )
         X_THROW(( "Failed to find H264 decoder." ));
 
@@ -64,6 +74,16 @@ VAH264Decoder::VAH264Decoder( AVDeMuxer& deMuxer, const struct CodecOptions& opt
     _surfaceLock(),
     _surfaceOrder( 0 )
 {
+    _outputImage.image_id = VA_INVALID_ID;
+    _vc.context_id = VA_INVALID_ID;
+
+    for( int i = 0; i < NUM_VA_BUFFERS; i++ )
+        _surfaces[i].id = VA_INVALID_ID;
+
+    _vc.config_id = VA_INVALID_ID;
+
+    _vc.display = NULL;
+
     if( !_codec )
         X_THROW(( "Failed to find H264 decoder." ));
 
@@ -87,8 +107,6 @@ VAH264Decoder::VAH264Decoder( AVDeMuxer& deMuxer, const struct CodecOptions& opt
 
 VAH264Decoder::~VAH264Decoder() throw()
 {
-    _DestroyVAAPIDecoder();
-
     _DestroyScaler();
 
     if( _frame )
@@ -99,6 +117,11 @@ VAH264Decoder::~VAH264Decoder() throw()
         avcodec_close( _context );
 
         av_free( _context );
+    }
+
+    if( _initComplete )
+    {
+        _DestroyVAAPIDecoder();
     }
 }
 
@@ -267,6 +290,10 @@ void VAH264Decoder::MakeYUV420P( uint8_t* dest )
                          pict.linesize );
     if( ret <= 0 )
         X_THROW(( "Unable to create YUV420P image." ));
+
+    status = vaUnmapBuffer( _vc.display, _outputImage.buf );
+    if( status != VA_STATUS_SUCCESS )
+        X_THROW(("Unable to vaMapBuffer(): %s\n", vaErrorStr(status)));
 }
 
 XIRef<XMemory> VAH264Decoder::MakeYUV420P()
@@ -343,11 +370,13 @@ void VAH264Decoder::_InitVAAPIDecoder()
 
     VASurfaceID surfaceIDs[NUM_VA_BUFFERS];
     status = vaCreateSurfaces( _vc.display,
+                               VA_RT_FORMAT_YUV420,
                                _context->width,
                                _context->height,
-                               VA_RT_FORMAT_YUV420,
+                               surfaceIDs,
                                NUM_VA_BUFFERS,
-                               surfaceIDs );
+                               NULL,
+                               0 );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(("Unable to vaCreateSurfaces(): %s\n", vaErrorStr(status)));
 
@@ -397,24 +426,68 @@ void VAH264Decoder::_InitVAAPIDecoder()
 
 void VAH264Decoder::_DestroyVAAPIDecoder()
 {
-    if( _initComplete )
+    VAStatus status = VA_STATUS_SUCCESS;
+
+    if( _outputImage.image_id != VA_INVALID_ID )
     {
-        vaDestroyImage( _vc.display, _outputImage.image_id );
-        vaDestroyContext( _vc.display, _vc.context_id );
+        status = vaDestroyImage( _vc.display, _outputImage.image_id );
 
-        VASurfaceID surfaceIDs[NUM_VA_BUFFERS];
-        for( int i = 0; i < NUM_VA_BUFFERS; i++ )
-            surfaceIDs[i] = _surfaces[i].id;
+        if( status != VA_STATUS_SUCCESS )
+            X_LOG_WARNING( "Unable to vaDestroyImage().");
 
-        vaDestroySurfaces( _vc.display, surfaceIDs, NUM_VA_BUFFERS );
+        _outputImage.image_id = VA_INVALID_ID;
+    }
 
-        vaDestroyConfig( _vc.display, _vc.config_id );
-        vaTerminate( _vc.display );
+    if( _vc.context_id != VA_INVALID_ID )
+    {
+        status = vaDestroyContext( _vc.display, _vc.context_id );
 
+        if( status != VA_STATUS_SUCCESS )
+            X_LOG_WARNING( "Unable to vaDestroyContext().");
+
+        _vc.context_id = VA_INVALID_ID;
+    }
+
+    for( int i = 0; i < NUM_VA_BUFFERS; i++ )
+    {
+        if( _surfaces[i].id != VA_INVALID_ID )
+        {
+            status = vaDestroySurfaces( _vc.display, &_surfaces[i].id, 1 );
+            if( status != VA_STATUS_SUCCESS )
+                X_LOG_WARNING( "Unable to vaDestroySurfaces()." );
+
+            _surfaces[i].id = VA_INVALID_ID;
+        }
+    }
+
+    if( _vc.config_id != VA_INVALID_ID )
+    {
+        status = vaDestroyConfig( _vc.display, _vc.config_id );
+
+        if( status != VA_STATUS_SUCCESS )
+            X_LOG_WARNING( "Unable to vaDestroyConfig().");
+
+        _vc.config_id = VA_INVALID_ID;
+    }
+
+    if( _vc.display != NULL )
+    {
+        status = vaTerminate( _vc.display );
+
+        if( status != VA_STATUS_SUCCESS )
+            X_LOG_WARNING( "Unable to vaTerminate().");
+
+        _vc.display = NULL;
+    }
+
+    if( _fd != -1 )
+    {
         close( _fd );
 
-        _initComplete = false;
+        _fd = -1;
     }
+
+    _initComplete = false;
 }
 
 enum PixelFormat VAH264Decoder::_GetFormat( struct AVCodecContext *avctx, const enum PixelFormat *fmt )

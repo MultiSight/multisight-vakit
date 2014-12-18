@@ -18,7 +18,6 @@ extern "C"
 
 #include <va/va.h>
 #include <va/va_drm.h>
-#include <va/va_compat.h>
 }
 
 namespace VAKit

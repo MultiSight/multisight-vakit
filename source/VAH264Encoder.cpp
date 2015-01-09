@@ -3,6 +3,7 @@
 #include "VAKit/BitStream.h"
 #include "VAKit/NALTypes.h"
 #include "XSDK/XException.h"
+#include <algorithm>
 
 using namespace VAKit;
 using namespace std;
@@ -54,6 +55,7 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     _currentFrameType( 0 ),
     _timeBaseNum( 0 ),
     _timeBaseDen( 0 ),
+    _initialQP( 26 ),
     _extraData(),
     _pkt(),
     _options( options )
@@ -84,7 +86,11 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     else X_THROW(( "Required option missing: height" ));
 
     if( !options.bit_rate.IsNull() )
+    {
+        _initialQP = _CalcQP( options.bit_rate.Value() );
+
         _frameBitRate = (options.bit_rate.Value() / 1024) / 8;
+    }
     else X_THROW(( "Required option missing: bit_rate" ));
 
     if( !options.gop_size.IsNull() )
@@ -133,7 +139,7 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     configAttribNum++;
 
     configAttrib[configAttribNum].type = VAConfigAttribRateControl;
-    configAttrib[configAttribNum].value = VA_RC_VBR;
+    configAttrib[configAttribNum].value = VA_RC_CQP;
     configAttribNum++;
 
     configAttrib[configAttribNum].type = VAConfigAttribEncPackedHeaders;
@@ -487,8 +493,8 @@ void VAH264Encoder::_RenderSequence()
     misc_rate_ctrl->bits_per_second = _frameBitRate * 1024 * 8;
     misc_rate_ctrl->target_percentage = 66;
     misc_rate_ctrl->window_size = 1000;
-    misc_rate_ctrl->initial_qp = 26;
-    misc_rate_ctrl->min_qp = 1;
+    misc_rate_ctrl->initial_qp = _initialQP;
+    misc_rate_ctrl->min_qp = 0;
     misc_rate_ctrl->basic_unit_size = 0;
 
     vaUnmapBuffer( _display, rc_param_buf );
@@ -566,7 +572,7 @@ void VAH264Encoder::_RenderPicture( bool done )
     _picParam.frame_num = _currentFrameNum;
     _picParam.coded_buf = _codedBufID;
     _picParam.last_picture = (done)?1:0;
-    _picParam.pic_init_qp = 26;
+    _picParam.pic_init_qp = _initialQP;
 
     VAStatus status = vaCreateBuffer( _display,
                                       _contextID,
@@ -735,6 +741,72 @@ void VAH264Encoder::_RenderSlice()
                               1 );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(( "Unable to vaCreateBuffer (%s).", vaErrorStr(status) ));
+}
+
+struct BitrateToQP
+{
+    uint32_t bitrate;
+    int qp;
+};
+
+bool operator < ( const struct BitrateToQP& a, const struct BitrateToQP& b )
+{
+    return a.bitrate < b.bitrate;
+}
+
+int VAH264Encoder::_CalcQP( uint32_t requestedBitrate )
+{
+    vector<struct BitrateToQP> mapping;
+
+    mapping.push_back( {31559, 42} );
+    mapping.push_back( {31908, 41} );
+    mapping.push_back( {32160, 40} );
+    mapping.push_back( {33100, 39} );
+    mapping.push_back( {34077, 38} );
+    mapping.push_back( {36355, 37} );
+    mapping.push_back( {37711, 36} );
+    mapping.push_back( {40315, 35} );
+    mapping.push_back( {43991, 34} );
+    mapping.push_back( {47544, 33} );
+    mapping.push_back( {51707, 32} );
+    mapping.push_back( {58400, 31} );
+    mapping.push_back( {62695, 30} );
+    mapping.push_back( {69531, 29} );
+    mapping.push_back( {78024, 28} );
+    mapping.push_back( {87620, 27} );
+    mapping.push_back( {97338, 26} );
+    mapping.push_back( {113438, 25} );
+    mapping.push_back( {123989, 24} );
+    mapping.push_back( {139966, 23} );
+    mapping.push_back( {159107, 22} );
+    mapping.push_back( {176234, 21} );
+    mapping.push_back( {194909, 20} );
+    mapping.push_back( {221554, 19} );
+    mapping.push_back( {239992, 18} );
+    mapping.push_back( {267067, 17} );
+    mapping.push_back( {296832, 16} );
+    mapping.push_back( {324868, 15} );
+    mapping.push_back( {351193, 14} );
+    mapping.push_back( {390833, 13} );
+    mapping.push_back( {420598, 12} );
+    mapping.push_back( {468506, 11} );
+    mapping.push_back( {511837, 10} );
+    mapping.push_back( {564883, 9} );
+    mapping.push_back( {598706, 8} );
+    mapping.push_back( {674208, 7} );
+    mapping.push_back( {716709, 6} );
+    mapping.push_back( {787596, 5} );
+    mapping.push_back( {819719, 4} );
+    mapping.push_back( {891671, 3} );
+    mapping.push_back( {923081, 2} );
+    mapping.push_back( {1007577, 1} );
+
+    // lower_bound finds first equal to or greater than item
+
+    struct BitrateToQP target = { requestedBitrate, 0 };
+    vector<struct BitrateToQP>::iterator found = lower_bound( mapping.begin(), mapping.end(), target );
+
+    return found->qp;
 }
 
 void VAH264Encoder::_UploadImage( uint8_t* yv12, VAImage& image, uint16_t width, uint16_t height )

@@ -63,6 +63,7 @@ private:
     void _RenderPackedPPS();
     void _RenderPackedSPS();
     void _RenderSlice();
+    int _CalcQP( uint32_t requestedBitrate );
 
     void _UploadImage( uint8_t* yv12, VAImage& image, uint16_t width, uint16_t height );
 
@@ -96,6 +97,7 @@ private:
     int32_t _currentFrameType;
     uint32_t _timeBaseNum;
     uint32_t _timeBaseDen;
+    int32_t _initialQP;
     XIRef<XSDK::XMemory> _extraData;
     XIRef<XSDK::XMemory> _pkt;
     struct AVKit::CodecOptions _options;

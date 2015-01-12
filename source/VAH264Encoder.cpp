@@ -103,11 +103,7 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     else X_THROW(("Required option missing: time_base.den"));
 
     if( !options.initial_qp.IsNull() )
-    {
-        printf("OVERRIDE initial_qp!\n");
-        fflush(stdout);
         _initialQP = options.initial_qp.Value();
-    }
 
     int major_ver = 0, minor_ver = 0;
     VAStatus status = vaInitialize( _display, &major_ver, &minor_ver );

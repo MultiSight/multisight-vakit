@@ -1,0 +1,47 @@
+
+# Pass something like VERSION=1.2.3 to define your own Version
+IF(DEFINED ENV{VERSION})
+SET(VERSION $ENV{VERSION})
+ELSE(DEFINED ENV{VERSION})
+SET(VERSION 0.0.1)
+ENDIF(DEFINED ENV{VERSION})
+
+# Pass something like RELEASE=216010f.fc20 to define your own Release
+IF(DEFINED ENV{RELEASE})
+SET(RELEASE $ENV{RELEASE})
+ELSE(DEFINED ENV{RELEASE})
+SET(RELEASE ${CMAKE_SYSTEM_NAME})
+ENDIF(DEFINED ENV{RELEASE})
+
+SET(CPACK_PACKAGE_NAME dec)
+SET(CPACK_PACKAGE_VERSION ${VERSION})
+SET(CPACK_PACKAGE_VENDOR "Schneider Electric")
+SET(CPACK_PACKAGE_GROUP "Multisight-Gateway")
+SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "BAMF command line transcoder.")
+
+IF(CMAKE_SYSTEM MATCHES "Linux-")
+
+  SET(CPACK_PACKAGING_INSTALL_PREFIX /usr/local/Pelco)
+  LIST(APPEND CPACK_GENERATOR RPM)
+  SET(CPACK_RPM_PACKAGE_NAME dec)
+  SET(CPACK_RPM_PACKAGE_VERSION ${VERSION})
+  SET(CPACK_RPM_PACKAGE_RELEASE ${RELEASE})
+  SET(CPACK_RPM_SPEC_MORE_DEFINE "%define ignore \#") # work around for cpack issue
+  SET(CPACK_RPM_USER_FILELIST "%ignore /usr" "%ignore /usr/local" "%ignore /usr/local/Pelco" "%ignore /lib" "%ignore /lib/systemd" "%ignore /lib/systemd/system" "%ignore /etc" "%ignore /etc/rsyslog.d")
+  SET(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/custom.spec")
+  SET(CPACK_RPM_PACKAGE_AUTOREQPROV " no")
+  SET(CPACK_RPM_PACKAGE_ARCHITECTURE ${TARGET_ARCH})
+
+ELSE(CMAKE_SYSTEM MATCHES "Linux-")
+
+  # Windows specific packaging stuff here...
+  SET(CPACK_PACKAGING_INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX})
+
+ENDIF(CMAKE_SYSTEM MATCHES "Linux-")
+
+# Finally, setup our package file name
+SET(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${RELEASE}.${TARGET_ARCH}" )
+
+SET(CPACK_OUTPUT_FILE_PREFIX "${devel_artifacts_path}/packages")
+
+INCLUDE(CPack)

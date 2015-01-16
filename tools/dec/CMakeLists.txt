@@ -1,0 +1,46 @@
+cmake_minimum_required(VERSION 2.8)
+project(dec)
+
+include(common.cmake NO_POLICY_SCOPE)
+include(packaging.cmake NO_POLICY_SCOPE)
+
+set(SOURCES source/main.cpp)
+
+set(LINUX_LIBS XSDK AVKit VAKit)
+
+set(APPLICATION_TYPE "NORMAL")
+
+include("${devel_artifacts_path}/build/base_app.cmake" NO_POLICY_SCOPE)
+
+# Installation...
+
+install(TARGETS dec DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libXSDK.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libAVKit.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libVAKit.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavcodec.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavcodec.so.54 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavcodec.so.54.92.100 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavdevice.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavdevice.so.54 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavdevice.so.54.3.103 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavfilter.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavfilter.so.3 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavfilter.so.3.42.103 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavformat.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavformat.so.54 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavformat.so.54.63.104 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavutil.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavutil.so.52 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libavutil.so.52.18.100 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libswresample.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libswresample.so.0 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libswresample.so.0.17.102 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libswscale.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libswscale.so.2 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libswscale.so.2.2.100 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libx264.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libx264.so.142 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libpostproc.so DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libpostproc.so.52 DESTINATION dec)
+install(FILES ${devel_artifacts_path}/lib/libpostproc.so.52.2.100 DESTINATION dec)

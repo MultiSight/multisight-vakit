@@ -34,6 +34,8 @@ public:
 
     X_API virtual ~VAH264Encoder() throw();
 
+    X_API static bool HasHW( const XSDK::XString& devicePath );
+
     X_API virtual size_t EncodeYUV420P( uint8_t* pic,
                                         uint8_t* output,
                                         size_t outputSize,

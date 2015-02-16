@@ -235,6 +235,68 @@ VAH264Encoder::~VAH264Encoder() throw()
     close( _fd );
 }
 
+bool VAH264Encoder::HasHW( const XString& devicePath )
+{
+    bool hasHW = true;
+
+    int fd = open( devicePath.c_str(), O_RDWR );
+    if( fd <= 0 )
+        hasHW = false;
+
+    if( hasHW )
+    {
+        VADisplay display = (VADisplay)vaGetDisplayDRM( fd );
+        if( !vaDisplayIsValid( display ) )
+            hasHW = false;
+
+        if( hasHW )
+        {
+            int major_ver = 0, minor_ver = 0;
+            VAStatus status = vaInitialize( display, &major_ver, &minor_ver );
+            if( status != VA_STATUS_SUCCESS )
+                hasHW = false;
+
+            if( hasHW )
+            {
+                VAConfigAttrib configAttrib[VAConfigAttribTypeMax];
+                int configAttribNum = 0;
+
+                configAttrib[configAttribNum].type = VAConfigAttribRTFormat;
+                configAttrib[configAttribNum].value = VA_RT_FORMAT_YUV420;
+                configAttribNum++;
+
+                configAttrib[configAttribNum].type = VAConfigAttribRateControl;
+                configAttrib[configAttribNum].value = VA_RC_CQP;
+                configAttribNum++;
+
+                configAttrib[configAttribNum].type = VAConfigAttribEncPackedHeaders;
+                configAttrib[configAttribNum].value = VA_ENC_PACKED_HEADER_NONE;
+                configAttrib[configAttribNum].value = VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_PICTURE;
+                configAttribNum++;
+
+                VAConfigID configID = VA_INVALID_ID;
+                status = vaCreateConfig( display,
+                                         VAProfileH264High,
+                                         VAEntrypointEncSlice,
+                                         &configAttrib[0],
+                                         configAttribNum,
+                                         &configID );
+                if( status != VA_STATUS_SUCCESS )
+                    hasHW = false;
+
+                if( hasHW )
+                    vaDestroyConfig( display, configID );
+            }
+
+            vaTerminate( display );
+        }
+
+        close( fd );
+    }
+
+    return hasHW;
+}
+
 size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
                                      uint8_t* output,
                                      size_t outputSize,

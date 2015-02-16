@@ -125,6 +125,61 @@ VAH264Decoder::~VAH264Decoder() throw()
     }
 }
 
+bool VAH264Decoder::HasHW( const XString& devicePath )
+{
+    bool hasHW = true;
+
+    int fd = open( devicePath.c_str(), O_RDWR );
+    if( fd <= 0 )
+        hasHW = false;
+
+    if( hasHW )
+    {
+        VADisplay display = (VADisplay)vaGetDisplayDRM( fd );
+        if( !vaDisplayIsValid( display ) )
+            hasHW = false;
+
+        if( hasHW )
+        {
+            int majorVer = 0, minorVer = 0;
+            VAStatus status = vaInitialize( display, &majorVer, &minorVer );
+            if( status != VA_STATUS_SUCCESS )
+                hasHW = false;
+
+            if( hasHW )
+            {
+                VAConfigAttrib attrib;
+                attrib.type = VAConfigAttribRTFormat;
+                vaGetConfigAttributes( display, VAProfileH264High, VAEntrypointVLD, &attrib, 1 );
+                if( (attrib.value & VA_RT_FORMAT_YUV420) == 0 )
+                    hasHW = false;
+
+                if( hasHW )
+                {
+                    VAConfigID configID = VA_INVALID_ID;
+                    VAStatus status = vaCreateConfig( display,
+                                                      VAProfileH264High,
+                                                      VAEntrypointVLD,
+                                                      &attrib,
+                                                      1,
+                                                      &configID );
+                    if( status != VA_STATUS_SUCCESS )
+                        hasHW = false;
+
+                    if( hasHW )
+                        vaDestroyConfig( display, configID );
+                }
+            }
+
+            vaTerminate( display );
+        }
+
+        close( fd );
+    }
+
+    return hasHW;
+}
+
 void VAH264Decoder::Decode( uint8_t* frame, size_t frameSize )
 {
     if( !_initComplete )

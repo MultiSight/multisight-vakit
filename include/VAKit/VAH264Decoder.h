@@ -39,6 +39,8 @@ public:
     X_API VAH264Decoder( AVKit::AVDeMuxer& deMuxer, const struct AVKit::CodecOptions& options );
     X_API virtual ~VAH264Decoder() throw();
 
+    X_API static bool HasHW( const XSDK::XString& devicePath );
+
     X_API virtual void Decode( uint8_t* frame, size_t frameSize );
     X_API virtual void Decode( XIRef<XSDK::XMemory> frame );
 

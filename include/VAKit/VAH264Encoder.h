@@ -29,6 +29,8 @@ extern "C"
 #include "AVKit/Options.h"
 #include "AVKit/FrameTypes.h"
 #include "AVKit/Encoder.h"
+#include "AVKit/Packet.h"
+#include "AVKit/PacketFactory.h"
 
 namespace VAKit
 {
@@ -46,14 +48,10 @@ public:
 
     X_API static bool HasHW( const XSDK::XString& devicePath );
 
-    X_API virtual size_t EncodeYUV420P( uint8_t* pic,
-                                        uint8_t* output,
-                                        size_t outputSize,
-                                        AVKit::FrameType type = AVKit::FRAME_TYPE_AUTO_GOP );
+    X_API virtual void EncodeYUV420P( XIRef<AVKit::Packet> input,
+                                      AVKit::FrameType type = AVKit::FRAME_TYPE_AUTO_GOP );
 
-    X_API virtual XIRef<XSDK::XMemory> EncodeYUV420P( XIRef<XSDK::XMemory> input,
-                                                      AVKit::FrameType type = AVKit::FRAME_TYPE_AUTO_GOP );
-
+    X_API virtual XIRef<AVKit::Packet> Get();
 
     X_API virtual bool LastWasKey() const;
 
@@ -110,8 +108,9 @@ private:
     uint32_t _timeBaseDen;
     int32_t _initialQP;
     XIRef<XSDK::XMemory> _extraData;
-    XIRef<XSDK::XMemory> _pkt;
     struct AVKit::CodecOptions _options;
+    XIRef<AVKit::PacketFactory> _pf;
+    XIRef<AVKit::Packet> _pkt;
 };
 
 }

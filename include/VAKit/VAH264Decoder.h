@@ -15,6 +15,8 @@
 #include "AVKit/Options.h"
 #include "AVKit/Decoder.h"
 #include "AVKit/AVDeMuxer.h"
+#include "AVKit/Packet.h"
+#include "AVKit/PacketFactory.h"
 #include "XSDK/Types.h"
 #include "XSDK/XMemory.h"
 #include "XSDK/XMutex.h"
@@ -51,8 +53,7 @@ public:
 
     X_API static bool HasHW( const XSDK::XString& devicePath );
 
-    X_API virtual void Decode( uint8_t* frame, size_t frameSize );
-    X_API virtual void Decode( XIRef<XSDK::XMemory> frame );
+    X_API virtual void Decode( XIRef<AVKit::Packet> frame );
 
     X_API virtual uint16_t GetInputWidth() const;
     X_API virtual uint16_t GetInputHeight() const;
@@ -63,9 +64,7 @@ public:
     X_API virtual void SetOutputHeight( uint16_t outputHeight );
     X_API virtual uint16_t GetOutputHeight() const;
 
-    X_API virtual size_t GetYUV420PSize() const;
-    X_API virtual void MakeYUV420P( uint8_t* dest );
-    X_API virtual XIRef<XSDK::XMemory> MakeYUV420P();
+    X_API virtual XIRef<AVKit::Packet> Get();
 
 private:
     VAH264Decoder( const VAH264Decoder& obj );
@@ -97,6 +96,7 @@ private:
     VAImage _outputImage;
     XSDK::XMutex _surfaceLock;
     unsigned int _surfaceOrder;
+    XIRef<AVKit::PacketFactory> _pf;
 };
 
 }

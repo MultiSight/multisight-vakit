@@ -38,7 +38,8 @@ VAH264Decoder::VAH264Decoder( const struct CodecOptions& options ) :
     _surfaces(),
     _outputImage(),
     _surfaceLock(),
-    _surfaceOrder( 0 )
+    _surfaceOrder( 0 ),
+    _pf( new PacketFactoryDefault )
 {
     _outputImage.image_id = VA_INVALID_ID;
     _vc.context_id = VA_INVALID_ID;
@@ -82,7 +83,8 @@ VAH264Decoder::VAH264Decoder( AVDeMuxer& deMuxer, const struct CodecOptions& opt
     _surfaces(),
     _outputImage(),
     _surfaceLock(),
-    _surfaceOrder( 0 )
+    _surfaceOrder( 0 ),
+    _pf( new PacketFactoryDefault )
 {
     _outputImage.image_id = VA_INVALID_ID;
     _vc.context_id = VA_INVALID_ID;
@@ -190,18 +192,18 @@ bool VAH264Decoder::HasHW( const XString& devicePath )
     return hasHW;
 }
 
-void VAH264Decoder::Decode( uint8_t* frame, size_t frameSize )
+void VAH264Decoder::Decode( XIRef<Packet> frame )
 {
     if( !_initComplete )
     {
-        _FinishFFMPEGInit( frame, frameSize );
+        _FinishFFMPEGInit( frame->Map(), frame->GetDataSize() );
         _initComplete = true;
     }
 
     AVPacket inputPacket;
     av_init_packet( &inputPacket );
-    inputPacket.data = frame;
-    inputPacket.size = frameSize;
+    inputPacket.data = frame->Map();
+    inputPacket.size = frame->GetDataSize();
 
     int gotPicture = 0;
     int ret = avcodec_decode_video2( _context,
@@ -223,11 +225,6 @@ void VAH264Decoder::Decode( uint8_t* frame, size_t frameSize )
                                   _outputImage.image_id );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(("Unable to vaGetImage(): %s\n", vaErrorStr(status)));
-}
-
-void VAH264Decoder::Decode( XIRef<XSDK::XMemory> frame )
-{
-    Decode( frame->Map(), frame->GetDataSize() );
 }
 
 uint16_t VAH264Decoder::GetInputWidth() const
@@ -272,15 +269,7 @@ uint16_t VAH264Decoder::GetOutputHeight() const
     return _outputHeight;
 }
 
-size_t VAH264Decoder::GetYUV420PSize() const
-{
-    if( (_outputWidth == 0) || (_outputHeight == 0) )
-        return _context->width * _context->height * 1.5;
-
-    return _outputWidth * _outputHeight * 1.5;
-}
-
-void VAH264Decoder::MakeYUV420P( uint8_t* dest )
+XIRef<Packet> VAH264Decoder::Get()
 {
     if( _outputWidth == 0 )
         _outputWidth = _context->width;
@@ -327,6 +316,10 @@ void VAH264Decoder::MakeYUV420P( uint8_t* dest )
                       _context->width, _context->height, _outputWidth, _outputHeight ));
     }
 
+    XIRef<Packet> pkt = _pf->Get( _outputWidth * _outputHeight * 1.5 );
+    pkt->SetDataSize( _outputWidth * _outputHeight * 1.5 );
+    uint8_t* dest = pkt->Map();
+
     AVPicture pict;
     pict.data[0] = dest;
     dest += _outputWidth * _outputHeight;
@@ -359,15 +352,8 @@ void VAH264Decoder::MakeYUV420P( uint8_t* dest )
     status = vaUnmapBuffer( _vc.display, _outputImage.buf );
     if( status != VA_STATUS_SUCCESS )
         X_THROW(("Unable to vaMapBuffer(): %s\n", vaErrorStr(status)));
-}
 
-XIRef<XMemory> VAH264Decoder::MakeYUV420P()
-{
-    size_t pictureSize = GetYUV420PSize();
-    XIRef<XMemory> buffer = new XMemory( pictureSize + DEFAULT_PADDING );
-    uint8_t* p = &buffer->Extend( pictureSize );
-    MakeYUV420P( p );
-    return buffer;
+    return pkt;
 }
 
 void VAH264Decoder::_FinishFFMPEGInit( uint8_t* frame, size_t frameSize )

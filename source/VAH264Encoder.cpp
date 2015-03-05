@@ -67,8 +67,9 @@ VAH264Encoder::VAH264Encoder( const struct AVKit::CodecOptions& options,
     _timeBaseDen( 0 ),
     _initialQP( 26 ),
     _extraData(),
-    _pkt(),
-    _options( options )
+    _options( options ),
+    _pf( new PacketFactoryDefault ),
+    _pkt()
 {
     if( options.device_path.IsNull() )
         X_THROW(("device_path needed for VAH264Encoder."));
@@ -307,15 +308,13 @@ bool VAH264Encoder::HasHW( const XString& devicePath )
     return hasHW;
 }
 
-size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
-                                     uint8_t* output,
-                                     size_t outputSize,
-                                     AVKit::FrameType type )
+void VAH264Encoder::EncodeYUV420P( XIRef<Packet> input,
+                                   FrameType type )
 {
     VAImage image;
     vaDeriveImage( _display, _srcSurfaceID, &image );
 
-    _UploadImage( pic, image, _frameWidth, _frameHeight );
+    _UploadImage( input->Map(), image, _frameWidth, _frameHeight );
 
     _currentFrameType = _ComputeCurrentFrameType( _currentFrameNum,
                                                   _intraPeriod,
@@ -392,10 +391,12 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
         current = (VACodedBufferSegment*)current->next;
     }
 
-    if( outputSize < accumSize )
+    _pkt = _pf->Get( DEFAULT_ENCODE_BUFFER_SIZE + DEFAULT_PADDING );
+
+    if( _pkt->GetBufferSize() < accumSize )
         X_THROW(("Not enough room in output buffer."));
 
-    uint8_t* dst = output;
+    uint8_t* dst = _pkt->Map();
 
     while( bufList != NULL )
     {
@@ -406,24 +407,12 @@ size_t VAH264Encoder::EncodeYUV420P( uint8_t* pic,
 
     vaUnmapBuffer( _display, _codedBufID );
 
-    return accumSize;
+    _pkt->SetDataSize( accumSize );
 }
 
-XIRef<XMemory> VAH264Encoder::EncodeYUV420P( XIRef<XMemory> input,
-                                             AVKit::FrameType type )
+XIRef<Packet> VAH264Encoder::Get()
 {
-    XIRef<XMemory> frame = new XMemory( DEFAULT_ENCODE_BUFFER_SIZE + DEFAULT_PADDING );
-
-    uint8_t* p = &frame->Extend( DEFAULT_ENCODE_BUFFER_SIZE );
-
-    size_t outputSize = EncodeYUV420P( input->Map(),
-                                       p,
-                                       frame->GetDataSize(),
-                                       type );
-
-    frame->ResizeData( outputSize );
-
-    return frame;
+    return _pkt;
 }
 
 bool VAH264Encoder::LastWasKey() const

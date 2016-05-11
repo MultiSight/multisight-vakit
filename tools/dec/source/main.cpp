@@ -38,7 +38,7 @@ XIRef<XMemory> LoadFile( const XString& fileName )
 
 int main( int argc, char* argv[] )
 {
-    if( argc < 4 )
+    if( argc < 5 )
     {
         printf("Invalid args.\n");
         fflush(stdout);
@@ -48,6 +48,7 @@ int main( int argc, char* argv[] )
     XString inputFileName = argv[1];
     int fps = XString( argv[2] ).ToInt();
     bool useHW = (XString( argv[3] ).Contains( "yes" )) ? true : false;
+    bool scale = (XString( argv[4] ).Contains( "yes" )) ? true : false;
 
     int64_t sleepMicros = 1000000 / fps;
 
@@ -57,6 +58,9 @@ int main( int argc, char* argv[] )
     if( useHW )
         decoder = new VAH264Decoder( GetFastH264DecoderOptions( "/dev/dri/card0" ) );
     else decoder = new H264Decoder( GetFastH264DecoderOptions() );
+
+    decoder->SetOutputWidth( 1152 );
+    decoder->SetOutputHeight( 648 );
 
     XIRef<XMemory> file = LoadFile( inputFileName );
 
@@ -89,9 +93,12 @@ int main( int argc, char* argv[] )
         {
             if( deMuxer->IsKey() )
             {
-                XIRef<XMemory> frame = deMuxer->GetFrame();
+                XIRef<Packet> pkt = deMuxer->Get();
 
-                decoder->Decode( frame );
+                decoder->Decode( pkt );
+
+                if( scale )
+                    XIRef<Packet> pic = decoder->Get();
 
                 unsigned int wait = sleepMicros;
 
